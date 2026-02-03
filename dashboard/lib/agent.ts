@@ -1,21 +1,23 @@
-import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import dotenv from 'dotenv';
-import { NormalizedEmail, InvestigationGrid } from '../types/domain';
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { NormalizedEmail, InvestigationGrid, CaseFile } from './types';
+import dotenv from 'dotenv';
+// dashboard next.js loads .env automatically, but this file might be imported in contexts where maybe not? 
+// Safe to keep.
 dotenv.config();
 
 export class AgentService {
   private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel;
+  private model: any;
 
   constructor() {
     const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_API_KEY not found');
-    this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      generationConfig: { responseMimeType: "application/json" }
-    });
+    if (!apiKey) {
+      console.error('GOOGLE_API_KEY is not set');
+      // throw new Error('GOOGLE_API_KEY is not set'); // Don't crash immediately for POC
+    }
+    this.genAI = new GoogleGenerativeAI(apiKey || 'dummy');
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' }); // Using 2.0 Flash as preferred
   }
 
   public async extractInvestigationGrid(email: { body: string, subject: string, receivedAt: Date }): Promise<{ grid: InvestigationGrid & { origin_station: string | null }, confidence: any }> {
@@ -57,7 +59,9 @@ export class AgentService {
     try {
       const result = await this.model.generateContent(prompt);
       const responseText = result.response.text();
-      return JSON.parse(responseText);
+      // Handle markdown code blocks
+      const jsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(jsonText);
     } catch (error) {
       console.error('Agent extraction failed:', error);
       // Fallback empty grid
@@ -69,34 +73,40 @@ export class AgentService {
   }
 
   public async updateGridWithBaseOps(currentGrid: InvestigationGrid, baseOpsEmail: NormalizedEmail): Promise<{ grid: InvestigationGrid, cx_summary: string }> {
+    // (Keeping code for reference, even if simplified workflow uses generateDraftResponse)
     const prompt = `
-        You are Agent 2. Your job is to update an investigation grid based on a response from Base Operations.
-        
-        CURRENT GRID:
-        ${JSON.stringify(currentGrid, null, 2)}
-        
-        BASE OPS EMAIL BODY:
-        ${baseOpsEmail.body}
-        
-        RULES:
-        1. Only update fields that Base Ops explicitly provides new info for.
-        2. Leave other fields UNCHANGED.
-        3. Do not infer unless Base Ops explicitly states it.
-        4. Provide a "cx_summary": a 1-sentence explanation for the CX agent.
-        
-        OUTPUT SCHEMA (JSON):
-        {
-          "grid": { ...same schema as input... },
-          "cx_summary": "string"
-        }
-      `;
+      You are Agent 2. Your job is to update an investigation grid based on a response from Base Operations.
+      
+      CURRENT GRID:
+      ${JSON.stringify(currentGrid, null, 2)}
+      
+      BASE OPS EMAIL BODY:
+      ${baseOpsEmail.body}
+      
+      RULES:
+      1. Only update fields that Base Ops explicitly provides new info for.
+      2. Leave other fields UNCHANGED.
+      3. Generate a "cx_summary" that is a polite, professional, ONE-SENTENCE summary of the finding (e.g., "The flight was delayed due to technical maintenance."). Do not admit fault unless explicit.
+      
+      OUTPUT SCHEMA (JSON):
+      {
+        "grid": {
+          "flight_number": "string or null",
+          "date": "YYYY-MM-DD or null",
+          "issue_type": "string or null",
+          "weather_condition": "string or null"
+        },
+        "cx_summary": "string"
+      }
+    `;
 
     try {
       const result = await this.model.generateContent(prompt);
       const responseText = result.response.text();
-      return JSON.parse(responseText);
+      const jsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(jsonText);
     } catch (error) {
-      console.error('Agent 2 failed:', error);
+      console.error('Agent update failed:', error);
       return { grid: currentGrid, cx_summary: "Error processing update." };
     }
   }
@@ -122,36 +132,11 @@ export class AgentService {
     `;
 
     try {
-      const result = await this.model.generateContent(prompt);
+      const result = await this.model.generateContent(prompt); // gemini-2.0-flash-exp (or default)
       return result.response.text();
     } catch (error) {
       console.error('Agent 2 draft generation failed:', error);
       return "We are reviewing your complaint and will get back to you shortly.";
-    }
-  }
-  public async isAirlineComplaint(subject: string, body: string): Promise<boolean> {
-    const prompt = `
-        You are an email classifier for an airline Customer Experience team.
-        Determine if the following email is a legitimate customer complaint or inquiry regarding an airline service (flight, baggage, refund, staff, etc.).
-
-        EMAIL SUBJECT: ${subject}
-        EMAIL BODY: ${body}
-
-        RULES:
-        1. Return ONLY the word "TRUE" if it is an airline complaint/inquiry.
-        2. Return ONLY the word "FALSE" if it is spam, marketing, completely unrelated (e.g. personal talk, job application, B2B sales), or a system notification not related to a specific passenger issue.
-        3. Be lenient with vague complaints, but strict with spam.
-        `;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const responseText = result.response.text().trim().toUpperCase();
-      return responseText.includes("TRUE");
-    } catch (error) {
-      console.error('Classification failed:', error);
-      // Fail safe: accept it if classification fails, or reject? 
-      // Better to accept and let manual review handle it than drop a real complaint.
-      return true;
     }
   }
 }

@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: indigo_postgres
+    environment:
+      POSTGRES_USER: indigo
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: indigo_poc
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indigo -d indigo_poc"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: indigo_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://indigo:password@postgres:5432/indigo_poc
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      TARGET_MAILBOX_EMAIL: ${TARGET_MAILBOX_EMAIL}
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    volumes:
+      - ./src:/app/src
+    command: npm run start:worker
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: indigo_dashboard
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://indigo:password@postgres:5432/indigo_poc
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+volumes:
+  postgres_data:

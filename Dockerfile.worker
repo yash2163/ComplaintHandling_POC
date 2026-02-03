@@ -1,0 +1,26 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Install system dependencies for Prisma (OpenSSL)
+
+# Install OpenSSL (required for Prisma)
+RUN apt-get update -y && apt-get install -y openssl ca-certificates
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+COPY prisma ./prisma/
+
+# Install dependencies including devDependencies (for ts-node)
+# In production we might build differently, but for POC this is fine
+RUN npm install
+
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Copy source
+COPY src ./src
+
+# Start using the script we added
+CMD ["npm", "run", "start:worker"]
