@@ -11,7 +11,9 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
     const [crewNotes, setCrewNotes] = useState('');
     const [draftEdits, setDraftEdits] = useState('');
 
+    console.log('[BaseOpsClientView] Render:', { complaintsCount: complaints.length, station, selectedId });
     const selectedComplaint = complaints.find(c => c.id === selectedId);
+    console.log('[BaseOpsClientView] Selected:', selectedComplaint?.id, 'Messages:', selectedComplaint?.conversation?.length);
 
     // Find messages
     const gridMsg = selectedComplaint?.conversation.find((m: any) => m.messageType === 'GRID');
@@ -96,9 +98,29 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                                 </div>
                                 <div className="border p-4 rounded bg-indigo-50 border-indigo-100">
                                     <div className="text-xs text-indigo-500 uppercase font-bold mb-2">Agent Extraction (Hint)</div>
-                                    <pre className="text-sm text-indigo-900 whitespace-pre-wrap">
-                                        {JSON.stringify((gridMsg?.content as any)?.gridFields, null, 2)}
-                                    </pre>
+                                    <div className="bg-white rounded border overflow-hidden">
+                                        <table className="min-w-full text-sm">
+                                            <tbody className="divide-y divide-indigo-100">
+                                                {Object.entries((gridMsg?.content as any)?.gridFields || {}).map(([key, value]) => (
+                                                    <tr key={key}>
+                                                        <td className="px-3 py-2 bg-indigo-50/50 font-medium text-indigo-700 capitalize w-1/3">
+                                                            {key.replace(/_/g, ' ')}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-indigo-900">
+                                                            {String(value || '-')}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {!gridMsg && (
+                                                    <tr>
+                                                        <td colSpan={2} className="px-3 py-4 text-center text-indigo-400 italic">
+                                                            Waiting for AI extraction...
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </div>

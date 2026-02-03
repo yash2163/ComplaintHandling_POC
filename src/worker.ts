@@ -105,13 +105,14 @@ async function pollCycle(outlook: OutlookService, agent: AgentService) {
         } as any); // Adapt to domain type if needed
 
         // Update DB
+        const gridContent = { gridFields: extraction.grid, confidence: extraction.confidence } as any;
         await prisma.$transaction([
             prisma.conversationMessage.create({
                 data: {
                     complaintId: complaint.id,
                     authorType: AuthorType.AGENT,
                     messageType: MessageType.GRID,
-                    content: { gridFields: extraction.grid, confidence: extraction.confidence } as any
+                    content: gridContent
                 }
             }),
             prisma.complaint.update({
@@ -124,6 +125,54 @@ async function pollCycle(outlook: OutlookService, agent: AgentService) {
         ]);
 
         console.log(`Agent 1 completed for ${complaint.id}. Station: ${extraction.grid.origin_station}`);
+
+        // --- DRAFT CREATION FOR BASE OPS ---
+        try {
+            // Use TARGET_MAILBOX_EMAIL since that's the inbox we're managing
+            // In production, this would be BASE_OPS_EMAIL
+            const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+
+            // 1. Generate HTML Table from Grid
+            const gridRows = Object.entries(extraction.grid).map(([key, value]) => `
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background-color: #f9f9f9; font-weight: bold; text-transform: capitalize;">${key.replace(/_/g, ' ')}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${value || '-'}</td>
+                </tr>
+            `).join('');
+
+            const htmlBody = `
+                <h3>Flight Complaint Investigation Request</h3>
+                <p><strong>Complaint ID:</strong> ${complaint.id}</p>
+                <p><strong>Status:</strong> WAITING_OPS</p>
+                
+                <h4>Extracted Details</h4>
+                <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 14px; margin-bottom: 20px;">
+                    <tbody>
+                        ${gridRows}
+                    </tbody>
+                </table>
+
+                <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;" />
+                
+                <h4>Original Customer Email</h4>
+                <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;">
+                    ${emailContent.body}
+                </div>
+            `;
+
+            // 2. Create Draft
+            await outlook.createDraft(
+                draftTargetEmail,
+                `[Action Required] Investigation for Flight ${extraction.grid.flight_number || 'Unknown'} - ${complaint.subject}`,
+                htmlBody
+            );
+            console.log(`Draft created for Base Ops (${draftTargetEmail})`);
+
+        } catch (draftError) {
+            console.error('Failed to create validation draft for Base Ops:', draftError);
+            // Continue -> Do not fail the whole cycle just because draft failed, DB is already updated.
+        }
+
     }
 }
 

@@ -6,9 +6,10 @@ import { MessageType } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CXDetailPage({ params }: { params: { id: string } }) {
+export default async function CXDetailPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params;
     const complaint = await prisma.complaint.findUnique({
-        where: { id: params.id },
+        where: { id },
         include: {
             conversation: {
                 orderBy: { createdAt: 'asc' },

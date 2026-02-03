@@ -79,4 +79,35 @@ export class OutlookService {
             throw error;
         }
     }
+
+    public async createDraft(targetEmail: string, subject: string, content: string): Promise<any> {
+        if (!this.client) throw new Error('Client not initialized');
+
+        const message = {
+            subject: subject,
+            body: {
+                contentType: 'HTML',
+                content: content
+            },
+            toRecipients: [
+                {
+                    emailAddress: {
+                        address: targetEmail // For a draft, this is technically who it will be sent TO, but it sits in the sender's draft folder. 
+                        // Wait, creating a draft in SOMEONE's mailbox means we are accessing /users/{id}/messages.
+                        // The 'from' is implicit as the mailbox owner.
+                    }
+                }
+            ]
+        };
+
+        try {
+            // POST /users/{id}/messages creates a draft in that user's default Drafts folder
+            const res = await this.client.api(`/users/${targetEmail}/messages`)
+                .post(message);
+            return res;
+        } catch (error) {
+            console.error(`Failed to create draft for ${targetEmail}:`, error);
+            throw error;
+        }
+    }
 }

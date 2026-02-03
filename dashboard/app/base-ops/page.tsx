@@ -4,8 +4,9 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export default async function BaseOpsPage({ searchParams }: { searchParams: { station?: string, id?: string } }) {
-    const station = searchParams.station || '';
+export default async function BaseOpsPage({ searchParams }: { searchParams: Promise<{ station?: string, id?: string }> }) {
+    const params = await searchParams;
+    const station = params.station || '';
 
     // Fetch complaints for station (if selected)
     // If no station selected, show empty or all? The UI encourages selection.
@@ -37,7 +38,7 @@ export default async function BaseOpsPage({ searchParams }: { searchParams: { st
             <BaseOpsClientView
                 complaints={complaints}
                 station={station}
-                selectedId={searchParams.id}
+                selectedId={params.id}
             />
         </div>
     );
