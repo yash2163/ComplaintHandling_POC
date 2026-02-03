@@ -129,6 +129,53 @@ export class AgentService {
       return "We are reviewing your complaint and will get back to you shortly.";
     }
   }
+  public async evaluateResolution(complaint: { subject: string, body: string }, crewResponse: { subject: string, body: string }): Promise<{ status: 'RESOLVED' | 'FLAGGED', reasoning: string, summary: string, draft_response: string }> {
+    const prompt = `
+      You are Agent 2, a supervisor AI for an airline. 
+      Your goal is to evaluate if the Flight Crew's response ADEQUATELY resolves the Customer's complaint.
+
+      CUSTOMER COMPLAINT:
+      Subject: ${complaint.subject}
+      Body: ${complaint.body}
+
+      FLIGHT CREW RESPONSE:
+      Subject: ${crewResponse.subject}
+      Body: ${crewResponse.body}
+
+      RULES:
+      1. Compare the complaint's specific grievances vs. the crew's actions.
+      2. If crew addresses the core issue (e.g. found bag, processed refund, explained delay validly), mark as "RESOLVED".
+      3. If crew is dismissive, misses the point, or doesn't offer a required apology/compensation, mark as "FLAGGED".
+      4. "reasoning": Internal note explaining your decision.
+      5. "summary": A 1-sentence summary of what the crew did (e.g. "Crew located bag and arranged delivery.").
+      6. "draft_response": A polite email reply to the CUSTOMER from "Base Ops Team", incorporating the resolution details.
+
+      OUTPUT SCHEMA (JSON):
+      {
+        "status": "RESOLVED" | "FLAGGED",
+        "reasoning": "string",
+        "summary": "string",
+        "draft_response": "string"
+      }
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const text = result.response.text();
+      // Simple cleanup if markdown blocks are returned
+      const jsonStr = text.replace(/```json/g, '').replace(/```/g, '');
+      return JSON.parse(jsonStr);
+    } catch (error) {
+      console.error('Agent 2 evaluation failed:', error);
+      return {
+        status: 'FLAGGED',
+        reasoning: 'Agent 2 failed to process resolution. Manual review required.',
+        summary: 'Error in AI evaluation.',
+        draft_response: ''
+      };
+    }
+  }
+
   public async isAirlineComplaint(subject: string, body: string): Promise<boolean> {
     const prompt = `
         You are an email classifier for an airline Customer Experience team.

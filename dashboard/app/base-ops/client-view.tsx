@@ -68,7 +68,7 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                                 <span className={`text-xs px-2 py-0.5 rounded-full ${c.status === 'WAITING_OPS' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'}`}>
                                     {c.status}
                                 </span>
-                                <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleDateString()}</span>
+                                <span className="text-xs text-gray-500" suppressHydrationWarning>{new Date(c.createdAt).toLocaleDateString('en-GB')}</span>
                             </div>
                         </Link>
                     ))}
@@ -125,10 +125,29 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                             </div>
                         </div>
 
+                        {/* 1.5 AGENT 2 EVALUATION (New) */}
+                        {(selectedComplaint.resolutionStatus === 'RESOLVED' || selectedComplaint.resolutionStatus === 'FLAGGED') && (
+                            <div className={`p-6 rounded-lg shadow-sm border ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                                <h2 className={`text-lg font-bold mb-4 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-800' : 'text-red-800'}`}>
+                                    Agent 2 Evaluation: {selectedComplaint.resolutionStatus}
+                                </h2>
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="text-xs font-bold uppercase opacity-70 mb-1">Crew Action Summary</div>
+                                        <p className="text-sm font-medium">{selectedComplaint.resolutionSummary}</p>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-bold uppercase opacity-70 mb-1">AI Reasoning</div>
+                                        <p className="text-sm italic opacity-90">{selectedComplaint.agentReasoning}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* 2. OPS INPUT */}
-                        {selectedComplaint.status === 'WAITING_OPS' || selectedComplaint.status === 'PROCESSING' ? (
+                        {(selectedComplaint.status === 'WAITING_OPS' || selectedComplaint.status === 'PROCESSING') && (
                             <div className="bg-white p-6 rounded-lg shadow-sm border border-yellow-200">
-                                <h2 className="text-lg font-bold text-gray-800 mb-4">Step 1: Crew Coordination</h2>
+                                <h2 className="text-lg font-bold text-gray-800 mb-4">Step 1: Crew Coordination / Response</h2>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Enter Flight Crew / Operational Notes
                                 </label>
@@ -149,10 +168,10 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                                     </button>
                                 </div>
                             </div>
-                        ) : null}
+                        )}
 
                         {/* 3. DRAFT REVIEW */}
-                        {selectedComplaint.status === 'DRAFT_READY' && draftMsg ? (
+                        {selectedComplaint.status === 'DRAFT_READY' && draftMsg && (
                             <div className="bg-white p-6 rounded-lg shadow-sm border border-orange-200">
                                 <h2 className="text-lg font-bold text-gray-800 mb-4">Step 2: Review & Approve</h2>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -175,13 +194,17 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                                     </button>
                                 </div>
                             </div>
-                        ) : null}
+                        )}
 
-                        {/* 4. APPROVED STATE */}
-                        {selectedComplaint.status === 'APPROVED' && (
+                        {/* 4. APPROVED / RESOLVED STATE */}
+                        {(selectedComplaint.status === 'APPROVED' || selectedComplaint.status === 'RESOLVED') && (
                             <div className="bg-green-50 p-6 rounded-lg border border-green-200 text-center">
                                 <h2 className="text-2xl font-bold text-green-700 mb-2">✓ Case Closed</h2>
-                                <p className="text-green-800">Response successfully generated and recorded.</p>
+                                <p className="text-green-800">
+                                    {selectedComplaint.resolutionStatus === 'RESOLVED'
+                                        ? 'Complaint resolved by Flight Crew and confirmed by Agent 2.'
+                                        : 'Response successfully generated and recorded.'}
+                                </p>
                             </div>
                         )}
                     </div>

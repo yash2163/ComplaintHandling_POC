@@ -14,6 +14,7 @@ enum ComplaintStatus {
   PROCESSING
   DRAFT_READY
   APPROVED
+  RESOLVED
 }
 
 enum AuthorType {
@@ -29,6 +30,12 @@ enum MessageType {
   FINAL
 }
 
+enum ResolutionStatus {
+  PENDING
+  RESOLVED
+  FLAGGED
+}
+
 model Complaint {
   id               String   @id @default(uuid())
   originalEmailId  String   @unique
@@ -37,6 +44,11 @@ model Complaint {
   originStation    String?  
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  
+  // Agent 2 Evaluation
+  resolutionStatus ResolutionStatus @default(PENDING)
+  agentReasoning   String?          // Why Agent 2 thinks it is resolved or flagged
+  resolutionSummary String?         // Summary of the resolution provided by Ops
   
   conversation     ConversationMessage[]
 }
