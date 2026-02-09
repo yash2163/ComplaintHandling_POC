@@ -1,0 +1,36 @@
+{
+    "name": "indigo-gcp-deployment",
+    "version": "1.0.0",
+    "description": "GCP deployment for Indigo Complaint Handling POC",
+    "main": "dist/worker.js",
+    "scripts": {
+        "build": "tsc",
+        "dev": "ts-node-dev --respawn src/workers/complaint-worker.ts",
+        "start:worker": "node dist/workers/complaint-worker.js",
+        "test": "jest"
+    },
+    "keywords": [
+        "gcp",
+        "firestore",
+        "vertex-ai",
+        "complaint-handling"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@azure/identity": "^4.0.0",
+        "@google-cloud/aiplatform": "^3.30.0",
+        "@google-cloud/firestore": "^7.1.0",
+        "@google-cloud/secret-manager": "^5.0.0",
+        "@google-cloud/vertexai": "^1.7.0",
+        "@microsoft/microsoft-graph-client": "^3.0.0",
+        "dotenv": "^16.3.1",
+        "isomorphic-fetch": "^3.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "ts-node": "^10.9.1",
+        "ts-node-dev": "^2.0.0",
+        "typescript": "^5.0.0"
+    }
+}

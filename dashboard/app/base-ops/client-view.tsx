@@ -133,12 +133,12 @@ export default function BaseOpsClientView({ complaints, station, selectedId }: {
                                 </h2>
                                 <div className="space-y-4">
                                     <div>
-                                        <div className="text-xs font-bold uppercase opacity-70 mb-1">Crew Action Summary</div>
-                                        <p className="text-sm font-medium">{selectedComplaint.resolutionSummary}</p>
+                                        <div className={`text-xs font-bold uppercase mb-1 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-700' : 'text-red-700'}`}>Crew Action Summary</div>
+                                        <p className="text-sm font-semibold text-gray-900">{selectedComplaint.resolutionSummary}</p>
                                     </div>
                                     <div>
-                                        <div className="text-xs font-bold uppercase opacity-70 mb-1">AI Reasoning</div>
-                                        <p className="text-sm italic opacity-90">{selectedComplaint.agentReasoning}</p>
+                                        <div className={`text-xs font-bold uppercase mb-1 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-700' : 'text-red-700'}`}>AI Reasoning</div>
+                                        <p className="text-sm font-medium text-gray-800 leading-relaxed">{selectedComplaint.agentReasoning}</p>
                                     </div>
                                 </div>
                             </div>
