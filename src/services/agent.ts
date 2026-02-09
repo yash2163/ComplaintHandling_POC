@@ -38,6 +38,8 @@ export class AgentService {
       OUTPUT SCHEMA (JSON):
       {
         "grid": {
+          "pnr": "string or null (Look for 6-character alphanumeric PNR)",
+          "complaint": "string or null (Brief summary of the passenger's complaint)",
           "flight_number": "string or null",
           "date": "YYYY-MM-DD or null",
           "issue_type": "string or null",
@@ -45,8 +47,10 @@ export class AgentService {
           "origin_station": "string or null"
         },
         "field_confidence": {
-          "flight_number": "EXPLICIT | INFERRED | MISSING",
-          "date": "... same enum ...",
+          "pnr": "EXPLICIT | INFERRED | MISSING",
+          "complaint": "EXPLICIT | INFERRED | MISSING",
+          "flight_number": "...",
+          "date": "...",
           "issue_type": "...",
           "weather_condition": "...",
           "origin_station": "..."
@@ -62,7 +66,19 @@ export class AgentService {
       console.error('Agent extraction failed:', error);
       // Fallback empty grid
       return {
-        grid: { flight_number: null, date: null, issue_type: null, weather_condition: null, origin_station: null },
+        grid: {
+          pnr: null,
+          complaint: null,
+          flight_number: null,
+          date: null,
+          issue_type: null,
+          weather_condition: null,
+          origin_station: null,
+          customer_name: null,
+          seat_number: null,
+          source: null,
+          destination: null
+        },
         confidence: {}
       };
     }

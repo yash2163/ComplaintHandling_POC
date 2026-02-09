@@ -17,7 +17,9 @@ export default async function BaseOpsPage({ searchParams }: { searchParams: Prom
         where: {
             // If station is selected, filter by it. Otherwise, show all.
             ...(station && { originStation: station }),
-            status: { not: 'NEW' } // Only show once extracted
+            status: {
+                notIn: ['NEW', 'MISSING_INFO']
+            }
         },
         include: {
             conversation: true

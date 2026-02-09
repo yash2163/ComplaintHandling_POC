@@ -113,7 +113,7 @@ export class OutlookService {
         }
     }
 
-    public async createDraft(targetEmail: string, subject: string, content: string): Promise<any> {
+    public async createDraft(mailboxEmail: string, subject: string, content: string, recipientEmail?: string): Promise<any> {
         if (!this.client) throw new Error('Client not initialized');
 
         const message = {
@@ -125,7 +125,7 @@ export class OutlookService {
             toRecipients: [
                 {
                     emailAddress: {
-                        address: targetEmail
+                        address: recipientEmail || mailboxEmail
                     }
                 }
             ]
@@ -133,11 +133,11 @@ export class OutlookService {
 
         try {
             // POST /users/{id}/messages creates a draft in that user's default Drafts folder
-            const res = await this.client.api(`/users/${targetEmail}/messages`)
+            const res = await this.client.api(`/users/${mailboxEmail}/messages`)
                 .post(message);
             return res;
         } catch (error) {
-            console.error(`Failed to create draft for ${targetEmail}:`, error);
+            console.error(`Failed to create draft for ${mailboxEmail}:`, error);
             throw error;
         }
     }
@@ -168,6 +168,26 @@ export class OutlookService {
                 .post(message);
         } catch (error) {
             console.error(`Failed to create msg in folder ${folderId}:`, error);
+            throw error;
+        }
+    }
+
+    public async clearFolder(targetEmail: string, folderId: string): Promise<void> {
+        if (!this.client) throw new Error('Client not initialized');
+        try {
+            const messages = await this.client.api(`/users/${targetEmail}/mailFolders/${folderId}/messages`)
+                .select('id')
+                .top(99) // Get up to 99 messages to clear
+                .get();
+
+            if (messages.value && messages.value.length > 0) {
+                console.log(`Clearing ${messages.value.length} messages from folder ${folderId}...`);
+                for (const msg of messages.value) {
+                    await this.client.api(`/users/${targetEmail}/messages/${msg.id}`).delete();
+                }
+            }
+        } catch (error) {
+            console.error(`Failed to clear folder ${folderId}:`, error);
             throw error;
         }
     }

@@ -25,7 +25,13 @@ export interface InvestigationGrid {
     date: string | null;
     issue_type: string | null;
     weather_condition: string | null;
-    // Add more fields as needed per requirements
+    origin_station: string | null;
+    pnr: string | null;
+    complaint: string | null;
+    customer_name: string | null;
+    seat_number: string | null;
+    source: string | null;
+    destination: string | null;
 }
 
 export interface CaseFile {

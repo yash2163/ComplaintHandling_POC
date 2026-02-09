@@ -111,79 +111,141 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         if (!emailMsg) continue;
 
         const emailContent = emailMsg.content as any;
+        const customerEmail = emailContent.from || 'unknown';
 
-        // Extract
+        // 1. EXTRACT PNR and Complaint Detail
         const extraction = await agent.extractInvestigationGrid({
             body: emailContent.body,
             subject: complaint.subject,
             receivedAt: new Date(emailContent.receivedAt)
         } as any);
 
-        // Update DB
-        const gridContent = { gridFields: extraction.grid, confidence: extraction.confidence } as any;
-        await prisma.$transaction([
-            prisma.conversationMessage.create({
-                data: {
-                    complaintId: complaint.id,
-                    authorType: AuthorType.AGENT,
-                    messageType: MessageType.GRID,
-                    content: gridContent
-                }
-            }),
-            prisma.complaint.update({
+        const extractedPnr = extraction.grid.pnr;
+        let passengerDetails = null;
+
+        // 2. TOOL CALL (Database Lookup)
+        if (extractedPnr) {
+            passengerDetails = await prisma.passenger.findUnique({
+                where: { pnr: extractedPnr }
+            });
+        }
+
+        if (passengerDetails) {
+            console.log(`PNR Found: ${extractedPnr}. Populating details for ${passengerDetails.customerName}`);
+
+            // Found: Update Grid and Complaint
+            const gridFields = {
+                ...extraction.grid,
+                customer_name: passengerDetails.customerName,
+                flight_number: passengerDetails.flightNumber,
+                seat_number: passengerDetails.seatNumber,
+                source: passengerDetails.source,
+                destination: passengerDetails.destination
+            };
+
+            await prisma.$transaction([
+                prisma.conversationMessage.create({
+                    data: {
+                        complaintId: complaint.id,
+                        authorType: AuthorType.AGENT,
+                        messageType: MessageType.GRID,
+                        content: { gridFields, confidence: extraction.confidence }
+                    }
+                }),
+                prisma.complaint.update({
+                    where: { id: complaint.id },
+                    data: {
+                        status: ComplaintStatus.WAITING_OPS,
+                        originStation: passengerDetails.source, // Assuming source is the origin
+                        pnr: extractedPnr,
+                        customerName: passengerDetails.customerName,
+                        flightNumber: passengerDetails.flightNumber,
+                        seatNumber: passengerDetails.seatNumber,
+                        source: passengerDetails.source,
+                        destination: passengerDetails.destination,
+                        complaintDetail: extraction.grid.complaint
+                    }
+                })
+            ]);
+
+            // Create Draft for Base Ops
+            try {
+                const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+                const gridRows = Object.entries(gridFields).map(([key, value]) => `
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #ddd; background-color: #f9f9f9; font-weight: bold; text-transform: capitalize;">${key.replace(/_/g, ' ')}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">${value || '-'}</td>
+                    </tr>
+                `).join('');
+
+                const htmlBody = `
+                    <h3>Flight Complaint Investigation Request</h3>
+                    <p><strong>Complaint ID:</strong> ${complaint.id}</p>
+                    <p><strong>Status:</strong> WAITING_OPS</p>
+                    
+                    <h4>Extracted & Database Details</h4>
+                    <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 14px; margin-bottom: 20px;">
+                        <tbody>
+                            ${gridRows}
+                        </tbody>
+                    </table>
+                    <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;" />
+                    <h4>Original Customer Email</h4>
+                    <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;">
+                        ${emailContent.body}
+                    </div>
+                `;
+
+                await outlook.createDraft(
+                    draftTargetEmail,
+                    `[Case: ${complaint.id}] Investigation for ${passengerDetails.flightNumber} - ${complaint.subject}`,
+                    htmlBody
+                );
+            } catch (draftError) {
+                console.error('Failed to create Base Ops draft:', draftError);
+            }
+
+        } else {
+            // Missing or Not Found: Highlight in Dashboard and Draft to Customer
+            console.log(`PNR ${extractedPnr || 'MISSING'} not found. Marking as MISSING_INFO.`);
+
+            await prisma.complaint.update({
                 where: { id: complaint.id },
                 data: {
-                    status: ComplaintStatus.WAITING_OPS,
-                    originStation: extraction.grid.origin_station
+                    status: ComplaintStatus.MISSING_INFO,
+                    pnr: extractedPnr, // Store whatever was extracted (even if null)
+                    complaintDetail: extraction.grid.complaint
                 }
-            })
-        ]);
+            });
 
-        console.log(`Agent 1 completed for ${complaint.id}. Station: ${extraction.grid.origin_station}`);
+            // Create Draft for CUSTOMER
+            try {
+                const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!; // Draft in our box, but To: customer
+                const customerDraftBody = `
+                    <p>Dear Customer,</p>
+                    <p>Thank you for reaching out to Indigo. We have received your complaint: <i>"${extraction.grid.complaint || complaint.subject}"</i>.</p>
+                    <p>However, we were unable to locate your flight details with the PNR provided: <b>${extractedPnr || 'None'}</b>.</p>
+                    <p>To assist you further, please provide the correct 6-character PNR number. You can reply to this email or send us the details at your earliest convenience.</p>
+                    <p>Regards,<br/>Indigo Customer Experience Team</p>
+                    <br/><hr/>
+                    <p><small>Reference ID: ${complaint.id}</small></p>
+                `;
 
-        // --- DRAFT CREATION FOR BASE OPS ---
-        try {
-            const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+                // Re-using createDraft but we should ideally target the customer email in 'toRecipients'
+                // The current outlook.ts implementation sends to targetEmail. 
+                // I'll update outlook.createDraft to accept a recipient if I can, or just use the current one for POC.
+                // Wait, if I want it in Drafts folder, I often create it with the recipient already set.
 
-            // 1. Generate HTML Table from Grid
-            const gridRows = Object.entries(extraction.grid).map(([key, value]) => `
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background-color: #f9f9f9; font-weight: bold; text-transform: capitalize;">${key.replace(/_/g, ' ')}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${value || '-'}</td>
-                </tr>
-            `).join('');
-
-            const htmlBody = `
-                <h3>Flight Complaint Investigation Request</h3>
-                <p><strong>Complaint ID:</strong> ${complaint.id}</p>
-                <p><strong>Status:</strong> WAITING_OPS</p>
-                
-                <h4>Extracted Details</h4>
-                <table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 14px; margin-bottom: 20px;">
-                    <tbody>
-                        ${gridRows}
-                    </tbody>
-                </table>
-
-                <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;" />
-                
-                <h4>Original Customer Email</h4>
-                <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;">
-                    ${emailContent.body}
-                </div>
-            `;
-
-            // 2. Create Draft
-            // IMPORTANT: Include Case ID in subject for matching
-            await outlook.createDraft(
-                draftTargetEmail,
-                `[Case: ${complaint.id}] Investigation for ${extraction.grid.flight_number || 'Flight'} - ${complaint.subject}`,
-                htmlBody
-            );
-            console.log(`Draft created for Base Ops (${draftTargetEmail}) with Case ID`);
-
-        } catch (draftError) {
-            console.error('Failed to create validation draft for Base Ops:', draftError);
+                await outlook.createDraft(
+                    draftTargetEmail, // Mailbox to create draft in
+                    `Action Required: Missing Flight Details for Case ${complaint.id}`,
+                    customerDraftBody,
+                    customerEmail // Real recipient
+                );
+                console.log(`Draft created for CUSTOMER (${customerEmail}) requesting PNR.`);
+            } catch (draftError) {
+                console.error('Failed to create customer PNR request draft:', draftError);
+            }
         }
     }
 }
