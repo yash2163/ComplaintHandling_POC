@@ -3,6 +3,7 @@ import Link from 'next/link';
 import prisma from '@/lib/db';
 import { notFound } from 'next/navigation';
 import { MessageType } from '@prisma/client';
+import GridDisplay from '@/components/GridDisplay';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,6 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
             conversation: {
                 orderBy: { createdAt: 'asc' },
                 where: {
-                    // Gap 3: Hide DRAFTS from CX
                     messageType: { not: MessageType.DRAFT }
                 }
             }
@@ -24,6 +24,8 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
     if (!complaint) {
         notFound();
     }
+
+    const grid = complaint.investigationGrid as any;
 
     return (
         <div className="min-h-screen bg-gray-100 p-8">
@@ -38,88 +40,52 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 <div className="space-y-6">
-                    {complaint.conversation.map((msg) => (
-                        <MessageItem key={msg.id} msg={msg} />
-                    ))}
+                    {/* INVESTIGATION GRID */}
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h2 className="text-lg font-bold mb-4 text-gray-800">Investigation Grid</h2>
+                        <GridDisplay grid={grid} showResolutionSection={true} />
+                    </div>
 
-                    {complaint.conversation.length === 0 && (
-                        <div className="text-center text-gray-400 italic">No messages yet.</div>
-                    )}
+                    {/* CONVERSATION */}
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h2 className="text-lg font-bold mb-4 text-gray-800">Conversation History</h2>
+                        <div className="space-y-4">
+                            {complaint.conversation.map((message, idx) => (
+                                <div
+                                    key={message.id}
+                                    className={`rounded-lg p-4 ${message.authorType === 'CX' ? 'bg-blue-50 border-l-4 border-blue-500' :
+                                            message.authorType === 'AGENT' ? 'bg-green-50 border-l-4 border-green-500' :
+                                                'bg-purple-50 border-l-4 border-purple-500'
+                                        }`}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="font-semibold text-sm text-gray-700">
+                                            {message.authorType === 'CX' ? '👤 Customer' :
+                                                message.authorType === 'AGENT' ? '🤖 AI Agent' :
+                                                    '✈️ Base Operations'}
+                                        </span>
+                                        <span className="text-xs text-gray-500">
+                                            {new Date(message.createdAt).toLocaleString()}
+                                        </span>
+                                    </div>
+
+                                    {message.messageType === MessageType.EMAIL ? (
+                                        <div className="text-sm text-gray-700">
+                                            <p className="font-medium mb-1">{(message.content as any).subject}</p>
+                                            <p className="whitespace-pre-wrap">{(message.content as any).body}</p>
+                                        </div>
+                                    ) : message.messageType === MessageType.GRID ? (
+                                        <div className="text-sm text-gray-700">
+                                            <p className="font-medium mb-2">✅ Grid extracted with confidence: {(message.content as any).confidence?.pnr || 'N/A'}</p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-700">(Draft Message)</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-    );
-}
-
-function MessageItem({ msg }: { msg: any }) {
-    const content = msg.content as any;
-    const isAgent = msg.authorType === 'AGENT';
-    const isCX = msg.authorType === 'CX';
-    const isOps = msg.authorType === 'BASE_OPS';
-
-    return (
-        <div className={`flex ${isCX ? 'justify-start' : 'justify-end'}`}>
-            <div className={`
-                max-w-3xl w-full rounded-lg shadow-sm border p-5 relative
-                ${isCX ? 'bg-white border-gray-200' : ''}
-                ${isAgent ? 'bg-indigo-50 border-indigo-100' : ''}
-                ${isOps ? 'bg-green-50 border-green-100' : ''}
-            `}>
-                <div className="flex justify-between items-center mb-3">
-                    <span className={`text-xs font-bold uppercase tracking-wide
-                        ${isCX ? 'text-gray-500' : ''}
-                        ${isAgent ? 'text-indigo-600' : ''}
-                        ${isOps ? 'text-green-600' : ''}
-                    `}>
-                        {msg.authorType} {msg.messageType !== 'EMAIL' ? `• ${msg.messageType}` : ''}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                        {new Date(msg.createdAt).toLocaleString()}
-                    </span>
-                </div>
-
-                {/* EMAIL CONTENT */}
-                {msg.messageType === 'EMAIL' && (
-                    <div>
-                        <div className="text-xs text-gray-500 mb-2">From: {content.from}</div>
-                        <div className="whitespace-pre-wrap text-gray-800 font-serif leading-relaxed">
-                            {content.body}
-                        </div>
-                    </div>
-                )}
-
-                {/* GRID CONTENT */}
-                {msg.messageType === 'GRID' && (
-                    <div>
-                        <div className="mb-2 text-indigo-700 font-semibold text-sm">Extracted Investigation Grid:</div>
-                        <div className="bg-white rounded border overflow-hidden">
-                            <table className="min-w-full text-sm">
-                                <tbody className="divide-y divide-gray-100">
-                                    {Object.entries(content.gridFields || {}).map(([key, value]) => (
-                                        <tr key={key}>
-                                            <td className="px-3 py-2 bg-gray-50 font-medium text-gray-600 capitalize">
-                                                {key.replace('_', ' ')}
-                                            </td>
-                                            <td className="px-3 py-2 text-gray-900">
-                                                {String(value || '-')}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-                {/* FINAL RESPONSE CONTENT */}
-                {msg.messageType === 'FINAL' && (
-                    <div>
-                        <div className="mb-2 text-green-700 font-semibold text-sm">Response Sent to Customer:</div>
-                        <div className="whitespace-pre-wrap text-gray-800 bg-white p-3 rounded border border-green-200">
-                            {content.text}
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
     );

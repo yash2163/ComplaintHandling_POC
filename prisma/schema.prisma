@@ -13,19 +13,11 @@ model Complaint {
   originalEmailId   String                @unique
   subject           String
   status            ComplaintStatus       @default(NEW)
-  originStation     String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
-  agentReasoning    String?
   resolutionStatus  ResolutionStatus      @default(PENDING)
-  resolutionSummary String?
-  complaintDetail   String?
-  customerName      String?
-  destination       String?
-  flightNumber      String?
-  pnr               String?
-  seatNumber        String?
-  source            String?
+  crReviewStatus    CRReviewStatus        @default(PENDING)
+  investigationGrid Json?                 // Complete investigation grid
   conversation      ConversationMessage[]
 }
 
@@ -69,6 +61,12 @@ enum MessageType {
   GRID
   DRAFT
   FINAL
+}
+
+enum CRReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum ResolutionStatus {

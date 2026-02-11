@@ -8,18 +8,10 @@ export default async function BaseOpsPage({ searchParams }: { searchParams: Prom
     const params = await searchParams;
     const station = params.station || '';
 
-    // Fetch complaints for station (if selected)
-    // If no station selected, show empty or all? The UI encourages selection.
-    // We will fetch where status is NOT NEW (Agent 1 must have run)
-    // and where originStation matches (if strict routing) or we handle "Unassigned"
-
+    // Fetch complaints that are waiting for Base Ops action
     const complaints = await prisma.complaint.findMany({
         where: {
-            // If station is selected, filter by it. Otherwise, show all.
-            ...(station && { originStation: station }),
-            status: {
-                notIn: ['NEW', 'MISSING_INFO']
-            }
+            status: 'WAITING_OPS'
         },
         include: {
             conversation: true
@@ -38,7 +30,7 @@ export default async function BaseOpsPage({ searchParams }: { searchParams: Prom
             </header>
 
             <BaseOpsClientView
-                complaints={complaints}
+                complaints={complaints as any}
                 station={station}
                 selectedId={params.id}
             />

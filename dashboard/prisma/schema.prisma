@@ -1,11 +1,43 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Complaint {
+  id                String                @id @default(uuid())
+  originalEmailId   String                @unique
+  subject           String
+  status            ComplaintStatus       @default(NEW)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  resolutionStatus  ResolutionStatus      @default(PENDING)
+  crReviewStatus    CRReviewStatus        @default(PENDING)
+  investigationGrid Json?                 // Complete investigation grid
+  conversation      ConversationMessage[]
+}
+
+model Passenger {
+  pnr          String @id
+  customerName String
+  flightNumber String
+  seatNumber   String
+  source       String
+  destination  String
+}
+
+model ConversationMessage {
+  id          String      @id @default(uuid())
+  complaintId String
+  authorType  AuthorType
+  messageType MessageType
+  content     Json
+  createdAt   DateTime    @default(now())
+  complaint   Complaint   @relation(fields: [complaintId], references: [id])
 }
 
 enum ComplaintStatus {
@@ -31,54 +63,14 @@ enum MessageType {
   FINAL
 }
 
+enum CRReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ResolutionStatus {
   PENDING
   RESOLVED
   FLAGGED
-}
-
-model Complaint {
-  id               String   @id @default(uuid())
-  originalEmailId  String   @unique
-  subject          String
-  status           ComplaintStatus @default(NEW)
-  originStation    String?  
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  
-  // New PNR-related fields
-  pnr              String?
-  customerName     String?
-  flightNumber     String?
-  seatNumber       String?
-  source           String?
-  destination      String?
-  complaintDetail  String?
-
-  // Agent 2 Evaluation
-  resolutionStatus ResolutionStatus @default(PENDING)
-  agentReasoning   String?          // Why Agent 2 thinks it is resolved or flagged
-  resolutionSummary String?         // Summary of the resolution provided by Ops
-  
-  conversation     ConversationMessage[]
-}
-
-model Passenger {
-  pnr          String @id
-  customerName String
-  flightNumber String
-  seatNumber   String
-  source       String
-  destination  String
-}
-
-model ConversationMessage {
-  id          String      @id @default(uuid())
-  complaintId String
-  authorType  AuthorType
-  messageType MessageType
-  content     Json
-  createdAt   DateTime    @default(now())
-  
-  complaint   Complaint   @relation(fields: [complaintId], references: [id])
 }

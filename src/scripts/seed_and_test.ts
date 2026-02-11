@@ -53,7 +53,27 @@ async function seedAndTest() {
         },
         {
             subject: "Problem with my flight",
-            body: "Hi, I had a very bad experience on my flight yesterday. The food was cold and the pilot was scary. I want my money back. I don't have my ticket handy right now, can you look me up?"
+            body: "Hi, I had a very bad experience on my flight yesterday. The food was cold and the Air hostess was not helpfull at all her name was rebeka. I want my money back. I don't have my ticket handy right now, can you look me up?"
+        },
+        {
+            subject: "Flight Cancellation - No Alternative Offered (PNR: ABC123)",
+            body: "Dear Indigo, Flight 6E-501 Delhi to Mumbai on Feb 10th was cancelled with only 2 hours notice. No alternative flight was offered to me. I had an important business meeting that I missed. This is extremely unprofessional. I demand a full refund plus compensation for the inconvenience caused. PNR: ABC123, passenger John Doe."
+        },
+        {
+            subject: "Web Check-in Failed - Had to Pay Extra (PNR: XYZ789)",
+            body: "I tried multiple times to do web check-in for flight 6E-202 (PNR XYZ789, passenger Jane Smith) but your website kept crashing. When I reached the airport, I was charged Rs 500 for airport check-in! This is not my fault. The system was down. I want a refund of this unfair charge."
+        },
+        {
+            subject: "Overweight Baggage Dispute - PNR: LMN456",
+            body: "Hello, I was traveling on 6E-101 from LHR to DEL yesterday (Robert Brown, PNR LMN456). The staff claimed my baggage was overweight by 5kg but their scale seemed faulty. I had weighed it at home - it was exactly 23kg. They forced me to pay Rs 2000 extra which I believe is wrong. Please investigate."
+        },
+        {
+            subject: "Denied Boarding Despite Valid Ticket - PNR: ABC123",
+            body: "This is outrageous! I had a confirmed ticket for 6E-501 DEL to BOM (PNR ABC123, John Doe) but was denied boarding because the flight was 'overbooked'. No one informed me in advance. I was left stranded at the airport with no assistance. I demand explanation and full compensation."
+        },
+        {
+            subject: "Lost Wheelchair at Airport - Urgent (PNR: XYZ789)",
+            body: "My elderly mother (Jane Smith, PNR XYZ789) required a wheelchair for flight 6E-202 from Bangalore. We requested it during booking but no wheelchair was provided at BLR airport. She had to walk with great difficulty. This is discrimination against differently-abled passengers. We need immediate action and apology."
         }
     ];
 

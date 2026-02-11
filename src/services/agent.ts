@@ -4,6 +4,24 @@ import { NormalizedEmail, InvestigationGrid } from '../types/domain';
 
 dotenv.config();
 
+export interface CompleteInvestigationGrid {
+  pnr: string | null;
+  customer_name: string | null;
+  flight_number: string | null;
+  seat_number: string | null;
+  source: string | null;
+  destination: string | null;
+  complaint: string | null;
+  issue_type: string | null;
+  weather_condition: string | null;
+  date: string | null;
+  action_taken: string | null;
+  outcome: string | null;
+  agent_summary: string | null;
+  confidence_score: number | null;
+  agent_reasoning: string | null;
+}
+
 export class AgentService {
   private genAI: GoogleGenerativeAI;
   private model: GenerativeModel;
@@ -18,7 +36,71 @@ export class AgentService {
     });
   }
 
-  public async extractInvestigationGrid(email: { body: string, subject: string, receivedAt: Date }): Promise<{ grid: InvestigationGrid & { origin_station: string | null }, confidence: any }> {
+  /**
+   * Format grid as structured text for email
+   */
+  public formatGridAsStructuredText(grid: CompleteInvestigationGrid): string {
+    return `=== INVESTIGATION GRID ===
+PNR: ${grid.pnr || '-'}
+Customer Name: ${grid.customer_name || '-'}
+Flight Number: ${grid.flight_number || '-'}
+Seat Number: ${grid.seat_number || '-'}
+Source: ${grid.source || '-'}
+Destination: ${grid.destination || '-'}
+Complaint: ${grid.complaint || '-'}
+Issue Type: ${grid.issue_type || '-'}
+Weather Condition: ${grid.weather_condition || '-'}
+Date: ${grid.date || '-'}
+${grid.action_taken || grid.outcome ? '---' : ''}
+${grid.action_taken ? `Action Taken: ${grid.action_taken}` : ''}
+${grid.outcome ? `Outcome: ${grid.outcome}` : ''}
+${grid.agent_summary ? `Agent Summary: ${grid.agent_summary}` : ''}
+${grid.confidence_score !== null && grid.confidence_score !== undefined ? `Confidence Score: ${grid.confidence_score}%` : ''}
+=== END GRID ===`;
+  }
+
+  /**
+   * Parse structured text grid from email body
+   */
+  public parseGridFromEmail(emailBody: string): Partial<CompleteInvestigationGrid> | null {
+    const gridMatch = emailBody.match(/=== INVESTIGATION GRID ===([\s\S]*?)=== END GRID ===/);
+    if (!gridMatch) return null;
+
+    const gridText = gridMatch[1];
+    const grid: Partial<CompleteInvestigationGrid> = {};
+
+    const extractField = (label: string): string | null => {
+      const regex = new RegExp(`${label}:\\s*(.+?)\\s*(?:\n|$)`, 'i');
+      const match = gridText.match(regex);
+      return match && match[1].trim() !== '-' ? match[1].trim() : null;
+    };
+
+    grid.pnr = extractField('PNR');
+    grid.customer_name = extractField('Customer Name');
+    grid.flight_number = extractField('Flight Number');
+    grid.seat_number = extractField('Seat Number');
+    grid.source = extractField('Source');
+    grid.destination = extractField('Destination');
+    grid.complaint = extractField('Complaint');
+    grid.issue_type = extractField('Issue Type');
+    grid.weather_condition = extractField('Weather Condition');
+    grid.date = extractField('Date');
+    grid.action_taken = extractField('Action Taken');
+    grid.outcome = extractField('Outcome');
+    grid.agent_summary = extractField('Agent Summary');
+
+    const scoreMatch = gridText.match(/Confidence Score:\s*(\d+)%?/i);
+    if (scoreMatch) {
+      grid.confidence_score = parseInt(scoreMatch[1]);
+    }
+
+    return grid;
+  }
+
+  /**
+   * Agent 1: Extract initial investigation grid from customer email
+   */
+  public async extractInvestigationGrid(email: { body: string, subject: string, receivedAt: Date }): Promise<{ grid: Partial<CompleteInvestigationGrid>, confidence: any }> {
     const prompt = `
       You are a specialized data extraction agent for an airline CX team.
       Your goal is to extract specific facts from the email below into a structured JSON grid.
@@ -28,7 +110,6 @@ export class AgentService {
       2. If a field is not explicitly mentioned, return null.
       3. For 'issue_type', categorize into: 'Delay', 'Cancellation', 'StaffBehavior', 'Baggage', 'Refund', 'Other'.
       4. For 'weather_condition', only extract if the user explicitly mentions weather causing the issue.
-      5. Extract 'origin_station' as the 3-letter IATA code (e.g., DEL, BOM, BLR) if mentioned. If city name mentioned, map to code. If not found, null.
 
       EMAIL CONTENT:
       Subject: ${email.subject}
@@ -43,8 +124,7 @@ export class AgentService {
           "flight_number": "string or null",
           "date": "YYYY-MM-DD or null",
           "issue_type": "string or null",
-          "weather_condition": "string or null",
-          "origin_station": "string or null"
+          "weather_condition": "string or null"
         },
         "field_confidence": {
           "pnr": "EXPLICIT | INFERRED | MISSING",
@@ -52,8 +132,7 @@ export class AgentService {
           "flight_number": "...",
           "date": "...",
           "issue_type": "...",
-          "weather_condition": "...",
-          "origin_station": "..."
+          "weather_condition": "..."
         }
       }
     `;
@@ -64,7 +143,6 @@ export class AgentService {
       return JSON.parse(responseText);
     } catch (error) {
       console.error('Agent extraction failed:', error);
-      // Fallback empty grid
       return {
         grid: {
           pnr: null,
@@ -72,105 +150,47 @@ export class AgentService {
           flight_number: null,
           date: null,
           issue_type: null,
-          weather_condition: null,
-          origin_station: null,
-          customer_name: null,
-          seat_number: null,
-          source: null,
-          destination: null
+          weather_condition: null
         },
         confidence: {}
       };
     }
   }
 
-  public async updateGridWithBaseOps(currentGrid: InvestigationGrid, baseOpsEmail: NormalizedEmail): Promise<{ grid: InvestigationGrid, cx_summary: string }> {
-    const prompt = `
-        You are Agent 2. Your job is to update an investigation grid based on a response from Base Operations.
-        
-        CURRENT GRID:
-        ${JSON.stringify(currentGrid, null, 2)}
-        
-        BASE OPS EMAIL BODY:
-        ${baseOpsEmail.body}
-        
-        RULES:
-        1. Only update fields that Base Ops explicitly provides new info for.
-        2. Leave other fields UNCHANGED.
-        3. Do not infer unless Base Ops explicitly states it.
-        4. Provide a "cx_summary": a 1-sentence explanation for the CX agent.
-        
-        OUTPUT SCHEMA (JSON):
-        {
-          "grid": { ...same schema as input... },
-          "cx_summary": "string"
-        }
-      `;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      const responseText = result.response.text();
-      return JSON.parse(responseText);
-    } catch (error) {
-      console.error('Agent 2 failed:', error);
-      return { grid: currentGrid, cx_summary: "Error processing update." };
-    }
-  }
-
-  public async generateDraftResponse(complaintGrid: any, crewNotes: string): Promise<string> {
-    const prompt = `
-      You are a polite and professional airline customer service agent (Agent 2).
-      Your goal is to write a reply to a customer complaint based on the investigation findings.
-      
-      COMPLAINT DETAILS:
-      ${JSON.stringify(complaintGrid, null, 2)}
-      
-      FLIGHT CREW/OPS NOTES:
-      "${crewNotes}"
-      
-      RULES:
-      1. Be empathetic but professional.
-      2. Use the "issue_type" and "crewNotes" to explain the situation transparently.
-      3. If the crew notes admit a fault, apologize sincerely.
-      4. If the crew notes deny the claim (e.g. weather was bad), explain it clearly using the data.
-      5. Keep it concise (under 200 words).
-      6. Return ONLY the plain text of the email body.
-    `;
-
-    try {
-      const result = await this.model.generateContent(prompt);
-      return result.response.text();
-    } catch (error) {
-      console.error('Agent 2 draft generation failed:', error);
-      return "We are reviewing your complaint and will get back to you shortly.";
-    }
-  }
-  public async evaluateResolution(complaint: { subject: string, body: string }, crewResponse: { subject: string, body: string }): Promise<{ status: 'RESOLVED' | 'FLAGGED', reasoning: string, summary: string, draft_response: string }> {
+  /**
+   * Agent 2: Enhance grid with resolution evaluation
+   */
+  public async enhanceGridWithResolution(
+    grid: Partial<CompleteInvestigationGrid>,
+    complaint: { subject: string, body: string }
+  ): Promise<{ enhanced_grid: Partial<CompleteInvestigationGrid>, status: 'RESOLVED' | 'FLAGGED', draft_response: string }> {
     const prompt = `
       You are Agent 2, a supervisor AI for an airline. 
-      Your goal is to evaluate if the Flight Crew's response ADEQUATELY resolves the Customer's complaint.
+      Your goal is to evaluate if the resolution from Base Ops adequately addresses the customer's complaint.
 
       CUSTOMER COMPLAINT:
       Subject: ${complaint.subject}
       Body: ${complaint.body}
 
-      FLIGHT CREW RESPONSE:
-      Subject: ${crewResponse.subject}
-      Body: ${crewResponse.body}
+      INVESTIGATION GRID WITH BASE OPS RESPONSE:
+      ${JSON.stringify(grid, null, 2)}
 
       RULES:
-      1. Compare the complaint's specific grievances vs. the crew's actions.
-      2. If crew addresses the core issue (e.g. found bag, processed refund, explained delay validly), mark as "RESOLVED".
-      3. If crew is dismissive, misses the point, or doesn't offer a required apology/compensation, mark as "FLAGGED".
-      4. "reasoning": Internal note explaining your decision.
-      5. "summary": A 1-sentence summary of what the crew did (e.g. "Crew located bag and arranged delivery.").
-      6. "draft_response": A polite email reply to the CUSTOMER from "Base Ops Team", incorporating the resolution details.
+      1. Review the "action_taken" and "outcome" fields added by Base Ops.
+      2. If the action addresses the core complaint issue (e.g. refund processed, bag found, valid explanation), mark as "RESOLVED".
+      3. If the action is dismissive, incomplete, or misses the point, mark as "FLAGGED".
+      4. Generate:
+         - "agent_summary": 1-sentence summary of the resolution (e.g. "Crew validated medical claim and processed complete refund")
+         - "confidence_score": 0-100 score (80-100=excellent/green, 60-79=partial/yellow, 0-59=poor/red)
+         - "agent_reasoning": Internal note explaining your score
+         - "draft_response": Polite email to customer explaining the resolution
 
       OUTPUT SCHEMA (JSON):
       {
         "status": "RESOLVED" | "FLAGGED",
-        "reasoning": "string",
-        "summary": "string",
+        "agent_summary": "string",
+        "confidence_score": number,
+        "agent_reasoning": "string",
         "draft_response": "string"
       }
     `;
@@ -178,16 +198,32 @@ export class AgentService {
     try {
       const result = await this.model.generateContent(prompt);
       const text = result.response.text();
-      // Simple cleanup if markdown blocks are returned
       const jsonStr = text.replace(/```json/g, '').replace(/```/g, '');
-      return JSON.parse(jsonStr);
-    } catch (error) {
-      console.error('Agent 2 evaluation failed:', error);
+      const evaluation = JSON.parse(jsonStr);
+
+      const enhanced_grid = {
+        ...grid,
+        agent_summary: evaluation.agent_summary,
+        confidence_score: evaluation.confidence_score,
+        agent_reasoning: evaluation.agent_reasoning
+      };
+
       return {
+        enhanced_grid,
+        status: evaluation.status,
+        draft_response: evaluation.draft_response
+      };
+    } catch (error) {
+      console.error('Agent 2 enhancement failed:', error);
+      return {
+        enhanced_grid: {
+          ...grid,
+          agent_summary: 'Error in AI evaluation',
+          confidence_score: 0,
+          agent_reasoning: 'Agent 2 failed to process resolution'
+        },
         status: 'FLAGGED',
-        reasoning: 'Agent 2 failed to process resolution. Manual review required.',
-        summary: 'Error in AI evaluation.',
-        draft_response: ''
+        draft_response: 'We are reviewing your complaint and will get back to you shortly.'
       };
     }
   }
@@ -212,8 +248,6 @@ export class AgentService {
       return responseText.includes("TRUE");
     } catch (error) {
       console.error('Classification failed:', error);
-      // Fail safe: accept it if classification fails, or reject? 
-      // Better to accept and let manual review handle it than drop a real complaint.
       return true;
     }
   }

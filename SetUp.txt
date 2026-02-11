@@ -1,2 +1,6 @@
 yashrajput@yashs-MacBook-Air-2 Indigo-POC % docker-compose up
 yashrajput@yashs-MacBook-Air-2 dashboard % npm run dev
+
+when database issue comes use: npx prisma migrate deploy
+
+

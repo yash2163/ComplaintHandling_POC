@@ -1,19 +1,21 @@
-import { OutlookService } from './services/outlook';
-import { AgentService, CompleteInvestigationGrid } from './services/agent';
-import prisma from './services/db';
+/**
+ * This script runs the worker logic ONCE and then exits.
+ * Used for controlled testing without infinite polling.
+ */
+
+import { OutlookService } from '../services/outlook';
+import { AgentService } from '../services/agent';
+import prisma from '../services/db';
 import { ComplaintStatus, AuthorType, MessageType, ResolutionStatus } from '@prisma/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const POLL_INTERVAL_MS = 60000; // 60s
-
-async function runWorker() {
+async function runWorkerOnce() {
     console.log('Worker started...');
     const outlook = new OutlookService();
     const agent = new AgentService();
 
-    // Ensure Auth
     await outlook.authenticate();
     const targetEmail = process.env.TARGET_MAILBOX_EMAIL;
     if (!targetEmail) {
@@ -21,54 +23,37 @@ async function runWorker() {
         return;
     }
 
-    // Get Folder IDs
     const complaintsFolderId = await outlook.getFolderId(targetEmail, 'Complaints');
     const resolutionsFolderId = await outlook.getFolderId(targetEmail, 'Resolutions');
 
     if (!complaintsFolderId || !resolutionsFolderId) {
-        console.error('CRITICAL: "Complaints" or "Resolutions" folder not found in Outlook.');
-        console.error('Please create these folders manually.');
+        console.error('CRITICAL: "Complaints" or "Resolutions" folder not found.');
         return;
     }
 
     console.log(`Monitoring Folders: Complaints (${complaintsFolderId}), Resolutions (${resolutionsFolderId})`);
-
-    while (true) {
-        try {
-            console.log('Polling cycle start...');
-            await processComplaints(outlook, agent, targetEmail, complaintsFolderId);
-            await processResolutions(outlook, agent, targetEmail, resolutionsFolderId);
-        } catch (error) {
-            console.error('Error in poll cycle:', error);
-        }
-
-        // Wait
-        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-    }
+    console.log('Polling cycle start...');
+    await processComplaints(outlook, agent, targetEmail, complaintsFolderId);
+    await processResolutions(outlook, agent, targetEmail, resolutionsFolderId);
+    console.log('Worker cycle complete. Exiting.');
 }
 
 async function processComplaints(outlook: OutlookService, agent: AgentService, targetEmail: string, folderId: string) {
-    // 1. INGESTION from "Complaints" Folder
     const messages = await outlook.getEmailsFromFolder(targetEmail, folderId, 10);
 
     for (const msg of messages) {
-        // Idempotency: Check if complaint exists by originalEmailId
         const existing = await prisma.complaint.findUnique({
             where: { originalEmailId: msg.id }
         });
 
         if (!existing) {
-            // 1.1 CLASSIFICATION
             const isComplaint = await agent.isAirlineComplaint(msg.subject || '', msg.bodyPreview || '');
-
             if (!isComplaint) {
                 console.log(`Skipped non-complaint email: ${msg.subject}`);
                 continue;
             }
 
             console.log(`New Email found in Complaints: ${msg.subject}`);
-
-            // Create Complaint
             const complaint = await prisma.complaint.create({
                 data: {
                     originalEmailId: msg.id,
@@ -91,8 +76,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         }
     }
 
-    // 2. AGENT 1 (Extraction)
-    // Find NEW complaints that have NO investigationGrid yet
+    // Agent 1 Processing
     const newComplaints = await prisma.complaint.findMany({
         where: {
             status: ComplaintStatus.NEW
@@ -105,14 +89,12 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         if (complaint.investigationGrid) continue;
 
         console.log(`Processing Agent 1 for ${complaint.id}...`);
-
         const emailMsg = complaint.conversation.find((c: any) => c.messageType === MessageType.EMAIL);
         if (!emailMsg) continue;
 
         const emailContent = emailMsg.content as any;
         const customerEmail = emailContent.from || 'unknown';
 
-        // 1. EXTRACT PNR and Complaint Detail
         const extraction = await agent.extractInvestigationGrid({
             body: emailContent.body,
             subject: complaint.subject,
@@ -122,7 +104,6 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         const extractedPnr = extraction.grid.pnr;
         let passengerDetails = null;
 
-        // 2. TOOL CALL (Database Lookup)
         if (extractedPnr) {
             passengerDetails = await prisma.passenger.findUnique({
                 where: { pnr: extractedPnr }
@@ -132,8 +113,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         if (passengerDetails) {
             console.log(`PNR Found: ${extractedPnr}. Populating details for ${passengerDetails.customerName}`);
 
-            // Create complete grid
-            const completeGrid: CompleteInvestigationGrid = {
+            const completeGrid = {
                 pnr: extractedPnr || null,
                 customer_name: passengerDetails.customerName,
                 flight_number: passengerDetails.flightNumber,
@@ -151,7 +131,6 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 agent_reasoning: null
             };
 
-            // Save grid to DB and update status
             await prisma.complaint.update({
                 where: { id: complaint.id },
                 data: {
@@ -160,26 +139,22 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 }
             });
 
-            // Create GRID message in conversation
             await prisma.conversationMessage.create({
                 data: {
                     complaintId: complaint.id,
                     authorType: AuthorType.AGENT,
                     messageType: MessageType.GRID,
-                    content: { grid: completeGrid, agentType: 'AGENT_1', confidence: extraction.confidence } as any
+                    content: { grid: completeGrid, agentType: 'AGENT_1', confidence: extraction.confidence }
                 }
             });
 
-            // Create Draft for Base Ops with structured text grid
             try {
                 const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
-
                 const gridText = agent.formatGridAsStructuredText(completeGrid);
 
                 const htmlBody = `
                     <h3>✈️ Action Required: Flight Complaint Investigation</h3>
                     <p><strong>Complaint ID:</strong> ${complaint.id}</p>
-                    <p><strong>Status:</strong> WAITING_OPS</p>
                     
                     <h4>Original Complaint</h4>
                     <p style="background-color: #f9f9f9; padding: 10px; border-left: 4px solid #0052cc;">${completeGrid.complaint}</p>
@@ -197,7 +172,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                         <li><strong>Action Taken:</strong> What action did the crew take?</li>
                         <li><strong>Outcome:</strong> What was the final result/compensation?</li>
                     </ul>
-                    <p>Reply to this email with the <strong>complete updated grid</strong> (copy the grid, fill in the details, and send it back).</p>
+                    <p>Reply to this email with the <strong>complete updated grid</strong>.</p>
                 `;
 
                 await outlook.createDraft(
@@ -211,20 +186,19 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
             }
 
         } else {
-            // Missing or Not Found: Mark as MISSING_INFO
             console.log(`PNR ${extractedPnr || 'MISSING'} not found. Marking as MISSING_INFO.`);
 
-            const incompleteGrid: CompleteInvestigationGrid = {
-                pnr: extractedPnr || null,
+            const incompleteGrid = {
+                pnr: extractedPnr,
                 customer_name: null,
                 flight_number: null,
                 seat_number: null,
                 source: null,
                 destination: null,
-                complaint: extraction.grid.complaint || null,
-                issue_type: extraction.grid.issue_type || null,
-                weather_condition: extraction.grid.weather_condition || null,
-                date: extraction.grid.date || null,
+                complaint: extraction.grid.complaint,
+                issue_type: extraction.grid.issue_type,
+                weather_condition: extraction.grid.weather_condition,
+                date: extraction.grid.date,
                 action_taken: null,
                 outcome: null,
                 agent_summary: null,
@@ -240,14 +214,13 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 }
             });
 
-            // Create Draft for CUSTOMER
             try {
                 const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
                 const customerDraftBody = `
                     <p>Dear Customer,</p>
                     <p>Thank you for reaching out to Indigo. We have received your complaint: <i>"${extraction.grid.complaint || complaint.subject}"</i>.</p>
                     <p>However, we were unable to locate your flight details with the PNR provided: <b>${extractedPnr || 'None'}</b>.</p>
-                    <p>To assist you further, please provide the correct 6-character PNR number. You can reply to this email or send us the details at your earliest convenience.</p>
+                    <p>To assist you further, please provide the correct 6-character PNR number.</p>
                     <p>Regards,<br/>Indigo Customer Experience Team</p>
                     <br/><hr/>
                     <p><small>Reference ID: ${complaint.id}</small></p>
@@ -271,7 +244,6 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
     const messages = await outlook.getEmailsFromFolder(targetEmail, folderId, 10);
 
     for (const msg of messages) {
-        // Extract Case ID from subject
         const caseIdMatch = msg.subject?.match(/\[Case:\s*([a-f0-9\-]+)\]/i);
         if (!caseIdMatch) {
             console.log(`Skipping resolution email without Case ID: ${msg.subject}`);
@@ -296,10 +268,7 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
 
         console.log(`Processing Resolution for Case ${complaintId}...`);
 
-        // Get full email body
         const emailBody = (msg.body as any)?.content || msg.bodyPreview || '';
-
-        // Parse grid from Base Ops email
         const parsedGrid = agent.parseGridFromEmail(emailBody);
 
         if (!parsedGrid || !parsedGrid.action_taken || !parsedGrid.outcome) {
@@ -307,40 +276,31 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
             continue;
         }
 
-        console.log(`Parsed grid from Base Ops: Action="${parsedGrid.action_taken}", Outcome="${parsedGrid.outcome}"`);
-
-        // Merge with existing grid
-        const currentGrid = complaint.investigationGrid as any as CompleteInvestigationGrid;
-        const updatedGrid: CompleteInvestigationGrid = {
+        const currentGrid = complaint.investigationGrid as any;
+        const updatedGrid = {
             ...currentGrid,
             action_taken: parsedGrid.action_taken,
             outcome: parsedGrid.outcome
         };
 
-        // Get original complaint for context
         const originalMsg = complaint.conversation.find(c => c.messageType === MessageType.EMAIL);
         const originalBody = (originalMsg?.content as any)?.body || '';
 
-        // Agent 2: Enhance grid with evaluation
         const enhancement = await agent.enhanceGridWithResolution(
             updatedGrid,
             { subject: complaint.subject, body: originalBody }
         );
 
-        const finalGrid = enhancement.enhanced_grid as CompleteInvestigationGrid;
-
-        // Determine status
+        const finalGrid = enhancement.enhanced_grid;
         const newStatus = enhancement.status === 'RESOLVED' ? ResolutionStatus.RESOLVED : ResolutionStatus.FLAGGED;
         const mainStatus = newStatus === ResolutionStatus.RESOLVED ? ComplaintStatus.RESOLVED : ComplaintStatus.WAITING_OPS;
 
-        // Color code
         let scoreColor = 'RED';
-        if (finalGrid.confidence_score && finalGrid.confidence_score >= 80) scoreColor = 'GREEN';
-        else if (finalGrid.confidence_score && finalGrid.confidence_score >= 60) scoreColor = 'YELLOW';
+        if ((finalGrid as any).confidence_score && (finalGrid as any).confidence_score >= 80) scoreColor = 'GREEN';
+        else if ((finalGrid as any).confidence_score && (finalGrid as any).confidence_score >= 60) scoreColor = 'YELLOW';
 
-        console.log(`Agent 2 Evaluation: ${enhancement.status} (Confidence: ${finalGrid.confidence_score}) - ${scoreColor}`);
+        console.log(`Agent 2 Evaluation: ${enhancement.status} (Confidence: ${(finalGrid as any).confidence_score}) - ${scoreColor}`);
 
-        // Update DB with final grid
         await prisma.complaint.update({
             where: { id: complaintId },
             data: {
@@ -351,7 +311,6 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
             }
         });
 
-        // Add Base Ops response to conversation
         await prisma.conversationMessage.create({
             data: {
                 complaintId,
@@ -365,11 +324,9 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
             }
         });
 
-        // Create Draft Response to CX with grid + prose
         if (enhancement.draft_response) {
             const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
-
-            const finalGridText = agent.formatGridAsStructuredText(finalGrid);
+            const finalGridText = agent.formatGridAsStructuredText(finalGrid as any);
 
             const htmlBody = `
                 <p>Dear Customer,</p>
@@ -386,17 +343,17 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
 
                 <p>Sincerely,<br/>
                 <strong>Indigo Customer Relations</strong><br/>
-                <span style="font-size: 10px; color: #888;">Ref: ${complaint.id} | Score: ${finalGrid.confidence_score}%</span></p>
+                <span style="font-size: 10px; color: #888;">Ref: ${complaint.id} | Score: ${(finalGrid as any).confidence_score || 0}%</span></p>
             `;
 
             await outlook.createDraft(
                 draftTargetEmail,
-                `[RESPONSE] Resolution for your complaint - ${complaint.subject} (PNR: ${finalGrid.pnr || 'N/A'})`,
+                `[RESPONSE] Resolution for your complaint - ${complaint.subject} (PNR: ${(finalGrid as any).pnr || 'N/A'})`,
                 htmlBody
             );
-            console.log(`Draft response created for CX (Score: ${finalGrid.confidence_score} - ${scoreColor}).`);
+            console.log(`Draft response created for CX (Score: ${(finalGrid as any).confidence_score} - ${scoreColor}).`);
         }
     }
 }
 
-runWorker();
+runWorkerOnce().then(() => process.exit(0));

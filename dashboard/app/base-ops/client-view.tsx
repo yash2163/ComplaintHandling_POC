@@ -1,214 +1,121 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { generateDraft, approveResponse } from '@/app/actions';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import GridDisplay from '@/components/GridDisplay';
 
-export default function BaseOpsClientView({ complaints, station, selectedId }: { complaints: any[], station: string, selectedId?: string }) {
-    const router = useRouter();
-    const [isPending, startTransition] = useTransition();
-    const [crewNotes, setCrewNotes] = useState('');
-    const [draftEdits, setDraftEdits] = useState('');
+interface Complaint {
+    id: string;
+    subject: string;
+    status: string;
+    resolutionStatus: string;
+    investigationGrid: any;
+    conversation: any[];
+}
 
-    console.log('[BaseOpsClientView] Render:', { complaintsCount: complaints.length, station, selectedId });
-    const selectedComplaint = complaints.find(c => c.id === selectedId);
-    console.log('[BaseOpsClientView] Selected:', selectedComplaint?.id, 'Messages:', selectedComplaint?.conversation?.length);
+interface ClientViewProps {
+    complaints: Complaint[];
+    station: string;
+    selectedId?: string;
+}
 
-    // Find messages
-    const gridMsg = selectedComplaint?.conversation.find((m: any) => m.messageType === 'GRID');
-    const emailMsg = selectedComplaint?.conversation.find((m: any) => m.messageType === 'EMAIL');
-    const draftMsg = selectedComplaint?.conversation.find((m: any) => m.messageType === 'DRAFT');
+export default function ClientView({ complaints: initialComplaints, station, selectedId: initialSelectedId }: ClientViewProps) {
+    const [complaints, setComplaints] = useState<Complaint[]>(initialComplaints);
+    const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId || (initialComplaints.length > 0 ? initialComplaints[0].id : null));
 
-    const handleGenerate = () => {
-        if (!selectedId || !crewNotes) return;
-        startTransition(async () => {
-            await generateDraft(selectedId, crewNotes);
-        });
-    };
+    useEffect(() => {
+        async function fetchData() {
+            const res = await fetch('/api/complaints');
+            const data = await res.json();
+            setComplaints(data);
+        }
+        fetchData();
+        const interval = setInterval(fetchData, 5000);
+        return () => clearInterval(interval);
+    }, []);
 
-    const handleApprove = () => {
-        if (!selectedId) return;
-        const finalBody = draftEdits || (draftMsg?.content as any)?.text;
-        if (!finalBody) return;
 
-        startTransition(async () => {
-            await approveResponse(selectedId, finalBody);
-        });
-    };
+    const selected = complaints.find(c => c.id === selectedId);
 
     return (
-        <div className="flex h-[calc(100vh-80px)]">
-            {/* LEFT SIDEBAR: LIST */}
-            <div className="w-1/3 border-r bg-white flex flex-col">
-                <div className="p-4 border-b bg-gray-50">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Base Location</label>
-                    <select
-                        className="w-full border-gray-300 rounded-md shadow-sm p-2"
-                        value={station}
-                        onChange={(e) => router.push(`/base-ops?station=${e.target.value}`)}
-                    >
-                        <option value="">Select Station...</option>
-                        <option value="DEL">Delhi (DEL)</option>
-                        <option value="BOM">Mumbai (BOM)</option>
-                        <option value="BLR">Bangalore (BLR)</option>
-                        <option value="HYD">Hyderabad (HYD)</option>
-                        <option value="CCU">Kolkata (CCU)</option>
-                    </select>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {complaints.map(c => (
-                        <Link
-                            key={c.id}
-                            href={`/base-ops?station=${station}&id=${c.id}`}
-                            className={`block p-4 border-b hover:bg-indigo-50 transition-colors ${c.id === selectedId ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
-                        >
-                            <div className="font-semibold text-gray-900 truncate">{c.subject}</div>
-                            <div className="flex justify-between mt-1">
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${c.status === 'WAITING_OPS' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'}`}>
-                                    {c.status}
-                                </span>
-                                <span className="text-xs text-gray-500" suppressHydrationWarning>{new Date(c.createdAt).toLocaleDateString('en-GB')}</span>
-                            </div>
-                        </Link>
-                    ))}
-                    {complaints.length === 0 && (
-                        <div className="p-8 text-center text-gray-500 text-sm">
-                            No complaints for {station || 'selection'}.
-                        </div>
-                    )}
-                </div>
-            </div>
+        <div className="min-h-screen bg-gray-100 p-8">
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold text-gray-800 mb-6">Base Ops Dashboard</h1>
 
-            {/* RIGHT MAIN: WORKFLOW */}
-            <div className="w-2/3 bg-gray-50 p-6 overflow-y-auto">
-                {!selectedComplaint ? (
-                    <div className="h-full flex items-center justify-center text-gray-400">
-                        Select a complaint to take action.
+                <div className="grid grid-cols-3 gap-6">
+                    {/* Complaint List */}
+                    <div className="col-span-1 bg-white rounded-lg shadow p-4 max-h-screen overflow-y-auto">
+                        <h2 className="text-lg font-bold mb-4 text-gray-800">Active Complaints</h2>
+                        <div className="space-y-2">
+                            {complaints.filter(c => c.status === 'WAITING_OPS').map((complaint) => (
+                                <button
+                                    key={complaint.id}
+                                    onClick={() => setSelectedId(complaint.id)}
+                                    className={`w-full text-left p-3 rounded border transition ${selectedId === complaint.id
+                                        ? 'bg-indigo-50 border-indigo-500'
+                                        : 'bg-white border-gray-200 hover:border-indigo-300'
+                                        }`}
+                                >
+                                    <p className="font-medium text-sm text-gray-900 truncate">{complaint.subject}</p>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        PNR: {(complaint.investigationGrid as any)?.pnr || '-'}
+                                    </p>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                ) : (
-                    <div className="space-y-6">
-                        {/* 1. VIEW CONTEXT */}
-                        <div className="bg-white p-6 rounded-lg shadow-sm border">
-                            <h2 className="text-lg font-bold text-gray-800 mb-4">Case Context</h2>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="border p-4 rounded bg-gray-50">
-                                    <div className="text-xs text-gray-500 uppercase font-bold mb-2">Original Email</div>
-                                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{(emailMsg?.content as any)?.body}</p>
+
+                    {/* Complaint Detail */}
+                    <div className="col-span-2 bg-white rounded-lg shadow p-6">
+                        {selected ? (
+                            <div className="space-y-6">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-800">{selected.subject}</h2>
+                                    <p className="text-sm text-gray-500 mt-1">Ticket ID: {selected.id.substring(0, 8)}</p>
                                 </div>
-                                <div className="border p-4 rounded bg-indigo-50 border-indigo-100">
-                                    <div className="text-xs text-indigo-500 uppercase font-bold mb-2">Agent Extraction (Hint)</div>
-                                    <div className="bg-white rounded border overflow-hidden">
-                                        <table className="min-w-full text-sm">
-                                            <tbody className="divide-y divide-indigo-100">
-                                                {Object.entries((gridMsg?.content as any)?.gridFields || {}).map(([key, value]) => (
-                                                    <tr key={key}>
-                                                        <td className="px-3 py-2 bg-indigo-50/50 font-medium text-indigo-700 capitalize w-1/3">
-                                                            {key.replace(/_/g, ' ')}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-indigo-900">
-                                                            {String(value || '-')}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                                {!gridMsg && (
-                                                    <tr>
-                                                        <td colSpan={2} className="px-3 py-4 text-center text-indigo-400 italic">
-                                                            Waiting for AI extraction...
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </tbody>
-                                        </table>
+
+                                {/* Investigation Grid */}
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Investigation Grid</h3>
+                                    <GridDisplay grid={selected.investigationGrid} showResolutionSection={true} />
+                                </div>
+
+                                {/* Instructions */}
+                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <h4 className="font-semibold text-yellow-900 mb-2">📧 Action Required</h4>
+                                    <p className="text-sm text-yellow-800">
+                                        Check your Outlook drafts for this complaint. Update the grid with:
+                                    </p>
+                                    <ul className="text-sm text-yellow-800 list-disc list-inside mt-2">
+                                        <li><strong>Action Taken:</strong> What action did you take?</li>
+                                        <li><strong>Outcome:</strong> What was the final result/compensation?</li>
+                                    </ul>
+                                    <p className="text-sm text-yellow-800 mt-2">
+                                        Reply to the email with the <strong>complete updated grid</strong>.
+                                    </p>
+                                </div>
+
+                                {/* Conversation History */}
+                                <div>
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Message History</h3>
+                                    <div className="space-y-3">
+                                        {selected.conversation.map((msg) => (
+                                            <div key={msg.id} className="bg-gray-50 rounded p-3 border border-gray-200">
+                                                <p className="text-xs text-gray-500 mb-1">
+                                                    {msg.authorType} • {new Date(msg.createdAt).toLocaleString()}
+                                                </p>
+                                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                                    {msg.messageType === 'EMAIL' ? (msg.content as any).body : 'Grid/Draft'}
+                                                </p>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        {/* 1.5 AGENT 2 EVALUATION (New) */}
-                        {(selectedComplaint.resolutionStatus === 'RESOLVED' || selectedComplaint.resolutionStatus === 'FLAGGED') && (
-                            <div className={`p-6 rounded-lg shadow-sm border ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                <h2 className={`text-lg font-bold mb-4 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-800' : 'text-red-800'}`}>
-                                    Agent 2 Evaluation: {selectedComplaint.resolutionStatus}
-                                </h2>
-                                <div className="space-y-4">
-                                    <div>
-                                        <div className={`text-xs font-bold uppercase mb-1 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-700' : 'text-red-700'}`}>Crew Action Summary</div>
-                                        <p className="text-sm font-semibold text-gray-900">{selectedComplaint.resolutionSummary}</p>
-                                    </div>
-                                    <div>
-                                        <div className={`text-xs font-bold uppercase mb-1 ${selectedComplaint.resolutionStatus === 'RESOLVED' ? 'text-green-700' : 'text-red-700'}`}>AI Reasoning</div>
-                                        <p className="text-sm font-medium text-gray-800 leading-relaxed">{selectedComplaint.agentReasoning}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 2. OPS INPUT */}
-                        {(selectedComplaint.status === 'WAITING_OPS' || selectedComplaint.status === 'PROCESSING') && (
-                            <div className="bg-white p-6 rounded-lg shadow-sm border border-yellow-200">
-                                <h2 className="text-lg font-bold text-gray-800 mb-4">Step 1: Crew Coordination / Response</h2>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Enter Flight Crew / Operational Notes
-                                </label>
-                                <textarea
-                                    className="w-full border rounded-md p-3 h-32 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="e.g. Captain confirmed delay was due to technical fault in hydraulic system..."
-                                    value={crewNotes}
-                                    onChange={e => setCrewNotes(e.target.value)}
-                                    disabled={isPending}
-                                />
-                                <div className="mt-4 flex justify-end">
-                                    <button
-                                        onClick={handleGenerate}
-                                        disabled={!crewNotes || isPending}
-                                        className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                                    >
-                                        {isPending ? 'Generating...' : 'Generate Customer Response (Agent 2)'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 3. DRAFT REVIEW */}
-                        {selectedComplaint.status === 'DRAFT_READY' && draftMsg && (
-                            <div className="bg-white p-6 rounded-lg shadow-sm border border-orange-200">
-                                <h2 className="text-lg font-bold text-gray-800 mb-4">Step 2: Review & Approve</h2>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Generated Draft Response
-                                </label>
-                                <textarea
-                                    className="w-full border rounded-md p-3 h-64 font-serif text-gray-800 focus:ring-green-500 focus:border-green-500"
-                                    defaultValue={(draftMsg.content as any).text}
-                                    onChange={e => setDraftEdits(e.target.value)}
-                                    disabled={isPending}
-                                />
-                                <div className="mt-4 flex justify-between items-center">
-                                    <span className="text-sm text-gray-500">Edit the text above if needed.</span>
-                                    <button
-                                        onClick={handleApprove}
-                                        disabled={isPending}
-                                        className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 font-bold"
-                                    >
-                                        {isPending ? 'Finalizing...' : 'Approve & Send Final'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* 4. APPROVED / RESOLVED STATE */}
-                        {(selectedComplaint.status === 'APPROVED' || selectedComplaint.status === 'RESOLVED') && (
-                            <div className="bg-green-50 p-6 rounded-lg border border-green-200 text-center">
-                                <h2 className="text-2xl font-bold text-green-700 mb-2">✓ Case Closed</h2>
-                                <p className="text-green-800">
-                                    {selectedComplaint.resolutionStatus === 'RESOLVED'
-                                        ? 'Complaint resolved by Flight Crew and confirmed by Agent 2.'
-                                        : 'Response successfully generated and recorded.'}
-                                </p>
-                            </div>
+                        ) : (
+                            <p className="text-gray-500">Select a complaint to view details</p>
                         )}
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );

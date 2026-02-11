@@ -10,29 +10,33 @@ interface GridData {
     complaint?: string | null;
     issue_type?: string | null;
     confidence_score?: number | null;
-    action_taken?: string | null;
-    outcome?: string | null;
+    agent_summary?: string | null;
 }
 
-export default async function CXTeamPage() {
+export default async function CRTeamPage() {
     const complaints = await prisma.complaint.findMany({
-        orderBy: { createdAt: 'desc' },
+        where: {
+            OR: [
+                { resolutionStatus: 'FLAGGED' },
+                { resolutionStatus: 'RESOLVED' }
+            ]
+        },
+        orderBy: { updatedAt: 'desc' },
         take: 50
     });
 
     const getConfidenceColor = (score: number | null | undefined): string => {
-        if (score === null || score === undefined) return 'text-gray-400';
+        if (score === null || score === undefined) return 'text-gray-600';
         if (score >= 80) return 'text-green-600 font-bold';
         if (score >= 60) return 'text-yellow-600 font-bold';
         return 'text-red-600 font-bold';
     };
 
-    const getStatusColor = (status: string) => {
+    const getStatusBadge = (status: string) => {
         const colors: any = {
-            NEW: 'bg-blue-100 text-blue-800',
-            WAITING_OPS: 'bg-yellow-100 text-yellow-800',
-            RESOLVED: 'bg-green-100 text-green-800',
-            MISSING_INFO: 'bg-red-100 text-red-800'
+            FLAGGED: 'bg-red-100 text-red-800 border-red-300',
+            RESOLVED: 'bg-green-100 text-green-800 border-green-300',
+            PENDING: 'bg-gray-100 text-gray-800 border-gray-300'
         };
         return colors[status] || 'bg-gray-100 text-gray-800';
     };
@@ -40,7 +44,7 @@ export default async function CXTeamPage() {
     return (
         <div className="min-h-screen bg-gray-100 p-8">
             <div className="max-w-7xl mx-auto">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6">CX Team - All Complaints</h1>
+                <h1 className="text-3xl font-bold text-gray-800 mb-6">CR Team - Resolutions Review</h1>
 
                 <div className="bg-white rounded-lg shadow overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-200">
@@ -48,10 +52,10 @@ export default async function CXTeamPage() {
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PNR</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issue</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Summary</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -68,11 +72,11 @@ export default async function CXTeamPage() {
                                             </Link>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                            {grid?.customer_name || '-'}
+                                            {grid?.issue_type || '-'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 py-1 text-xs rounded ${getStatusColor(complaint.status)}`}>
-                                                {complaint.status}
+                                            <span className={`px-2 py-1 text-xs rounded border ${getStatusBadge(complaint.resolutionStatus)}`}>
+                                                {complaint.resolutionStatus}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -81,7 +85,7 @@ export default async function CXTeamPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate">
-                                            {grid?.action_taken || '-'}
+                                            {grid?.agent_summary || '-'}
                                         </td>
                                     </tr>
                                 );
