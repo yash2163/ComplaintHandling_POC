@@ -60,41 +60,187 @@ ${grid.confidence_score !== null && grid.confidence_score !== undefined ? `Confi
   }
 
   /**
-   * Parse structured text grid from email body
+   * Format grid as HTML table for email
    */
-  public parseGridFromEmail(emailBody: string): Partial<CompleteInvestigationGrid> | null {
+  public formatGridAsHtmlTable(grid: CompleteInvestigationGrid): string {
+    const hasResolution = grid.action_taken || grid.outcome;
+
+    return `
+<table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; margin: 20px 0;">
+  <thead>
+    <tr style="background-color: #0052cc; color: white;">
+      <th colspan="2" style="padding: 12px; text-align: left; font-size: 16px; border: 1px solid #ddd;">
+        📋 INVESTIGATION GRID
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd; width: 180px;">PNR</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.pnr || '-'}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Customer Name</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.customer_name || '-'}</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Flight Number</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.flight_number || '-'}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Seat Number</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.seat_number || '-'}</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Source</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.source || '-'}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Destination</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.destination || '-'}</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Complaint</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.complaint || '-'}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Issue Type</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.issue_type || '-'}</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Weather Condition</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.weather_condition || '-'}</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Date</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.date || '-'}</td>
+    </tr>
+    ${hasResolution ? `
+    <tr style="background-color: #fff3cd;">
+      <th colspan="2" style="padding: 12px; text-align: left; font-weight: bold; border: 1px solid #ddd; color: #856404;">
+        ✅ RESOLUTION
+      </th>
+    </tr>
+    <tr style="background-color: #fffef7;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Action Taken</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.action_taken || '-'}</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Outcome</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.outcome || '-'}</td>
+    </tr>
+    ${grid.agent_summary ? `
+    <tr style="background-color: #fffef7;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Agent Summary</td>
+      <td style="padding: 10px; border: 1px solid #ddd;">${grid.agent_summary}</td>
+    </tr>
+    ` : ''}
+    ${grid.confidence_score !== null && grid.confidence_score !== undefined ? `
+    <tr style="background-color: #f9f9f9;">
+      <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Confidence Score</td>
+      <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: ${grid.confidence_score >= 80 ? '#28a745' : grid.confidence_score >= 60 ? '#ffc107' : '#dc3545'};">
+        ${grid.confidence_score}%
+      </td>
+    </tr>
+    ` : ''}
+    ` : ''}
+  </tbody>
+</table>
+
+<!-- For parsing: keep structured text version below -->
+<div style="display: none;">
+=== INVESTIGATION GRID ===
+PNR: ${grid.pnr || '-'}
+Customer Name: ${grid.customer_name || '-'}
+Flight Number: ${grid.flight_number || '-'}
+Seat Number: ${grid.seat_number || '-'}
+Source: ${grid.source || '-'}
+Destination: ${grid.destination || '-'}
+Complaint: ${grid.complaint || '-'}
+Issue Type: ${grid.issue_type || '-'}
+Weather Condition: ${grid.weather_condition || '-'}
+Date: ${grid.date || '-'}
+${grid.action_taken ? `Action Taken: ${grid.action_taken}` : ''}
+${grid.outcome ? `Outcome: ${grid.outcome}` : ''}
+=== END GRID ===
+</div>
+`;
+  }
+
+
+  /**
+   * Parse resolution details from email body.
+   * Strategy 1: Look for hidden structured text block (=== INVESTIGATION GRID ===).
+   * Strategy 2: Use LLM to extract details from visible text/HTML.
+   */
+  public async parseResolutionFromEmail(emailBody: string): Promise<Partial<CompleteInvestigationGrid> | null> {
+    // Strategy 1: Try Regex (Fast & Exact)
     const gridMatch = emailBody.match(/=== INVESTIGATION GRID ===([\s\S]*?)=== END GRID ===/);
-    if (!gridMatch) return null;
+    if (gridMatch) {
+      console.log('Found structured grid block. Parsing...');
+      const gridText = gridMatch[1];
+      const grid: Partial<CompleteInvestigationGrid> = {};
 
-    const gridText = gridMatch[1];
-    const grid: Partial<CompleteInvestigationGrid> = {};
+      const extractField = (label: string): string | null => {
+        const regex = new RegExp(`${label}:\\s*(.+?)\\s*(?:\n|$)`, 'i');
+        const match = gridText.match(regex);
+        return match && match[1].trim() !== '-' ? match[1].trim() : null;
+      };
 
-    const extractField = (label: string): string | null => {
-      const regex = new RegExp(`${label}:\\s*(.+?)\\s*(?:\n|$)`, 'i');
-      const match = gridText.match(regex);
-      return match && match[1].trim() !== '-' ? match[1].trim() : null;
-    };
+      grid.pnr = extractField('PNR');
+      grid.customer_name = extractField('Customer Name');
+      grid.flight_number = extractField('Flight Number');
+      grid.seat_number = extractField('Seat Number');
+      grid.source = extractField('Source');
+      grid.destination = extractField('Destination');
+      grid.complaint = extractField('Complaint');
+      grid.issue_type = extractField('Issue Type');
+      grid.weather_condition = extractField('Weather Condition');
+      grid.date = extractField('Date');
+      grid.action_taken = extractField('Action Taken');
+      grid.outcome = extractField('Outcome');
+      grid.agent_summary = extractField('Agent Summary');
 
-    grid.pnr = extractField('PNR');
-    grid.customer_name = extractField('Customer Name');
-    grid.flight_number = extractField('Flight Number');
-    grid.seat_number = extractField('Seat Number');
-    grid.source = extractField('Source');
-    grid.destination = extractField('Destination');
-    grid.complaint = extractField('Complaint');
-    grid.issue_type = extractField('Issue Type');
-    grid.weather_condition = extractField('Weather Condition');
-    grid.date = extractField('Date');
-    grid.action_taken = extractField('Action Taken');
-    grid.outcome = extractField('Outcome');
-    grid.agent_summary = extractField('Agent Summary');
+      const scoreMatch = gridText.match(/Confidence Score:\s*(\d+)%?/i);
+      if (scoreMatch) {
+        grid.confidence_score = parseInt(scoreMatch[1]);
+      }
 
-    const scoreMatch = gridText.match(/Confidence Score:\s*(\d+)%?/i);
-    if (scoreMatch) {
-      grid.confidence_score = parseInt(scoreMatch[1]);
+      return grid;
     }
 
-    return grid;
+    // Strategy 2: LLM Fallback (Robust for Human Emails)
+    console.log('Structured grid not found. Attempting LLM extraction for resolution...');
+    const prompt = `
+      You are an airline CX agent reading an email from Base Operations.
+      Your goal is to extract the resolution details from the email body.
+      The email likely contains an HTML table or text with headers like "Action Taken" and "Outcome".
+      
+      EMAIL BODY:
+      ${emailBody.substring(0, 10000)} <!-- Limit context size -->
+
+      RULES:
+      1. Identify the "Action Taken" by the ops team.
+      2. Identify the "Outcome" or final resolution provided to the customer.
+      3. Return NULL if these specific details are not found.
+
+      OUTPUT SCHEMA (JSON):
+      {
+        "action_taken": "string or null",
+        "outcome": "string or null"
+      }
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = result.response.text();
+      const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
+      const data = JSON.parse(cleaned);
+      return data;
+    } catch (error) {
+      console.error('LLM Resolution Extraction Failed:', error);
+      return null;
+    }
   }
 
   /**

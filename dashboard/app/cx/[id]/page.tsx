@@ -25,6 +25,7 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
         notFound();
     }
 
+    // @ts-ignore
     const grid = complaint.investigationGrid as any;
 
     return (
@@ -54,8 +55,8 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
                                 <div
                                     key={message.id}
                                     className={`rounded-lg p-4 ${message.authorType === 'CX' ? 'bg-blue-50 border-l-4 border-blue-500' :
-                                            message.authorType === 'AGENT' ? 'bg-green-50 border-l-4 border-green-500' :
-                                                'bg-purple-50 border-l-4 border-purple-500'
+                                        message.authorType === 'AGENT' ? 'bg-green-50 border-l-4 border-green-500' :
+                                            'bg-purple-50 border-l-4 border-purple-500'
                                         }`}
                                 >
                                     <div className="flex items-center justify-between mb-2">
@@ -72,7 +73,10 @@ export default async function CXDetailPage({ params }: { params: Promise<{ id: s
                                     {message.messageType === MessageType.EMAIL ? (
                                         <div className="text-sm text-gray-700">
                                             <p className="font-medium mb-1">{(message.content as any).subject}</p>
-                                            <p className="whitespace-pre-wrap">{(message.content as any).body}</p>
+                                            <div
+                                                className="prose prose-sm max-w-none text-gray-700"
+                                                dangerouslySetInnerHTML={{ __html: (message.content as any).body }}
+                                            />
                                         </div>
                                     ) : message.messageType === MessageType.GRID ? (
                                         <div className="text-sm text-gray-700">

@@ -69,7 +69,7 @@ export class OutlookService {
         try {
             const messages = await this.client.api(`/users/${targetEmail}/messages`)
                 .top(count)
-                .select('id,subject,from,receivedDateTime,bodyPreview')
+                .select('id,subject,from,receivedDateTime,bodyPreview,body')
                 .orderby('receivedDateTime DESC')
                 .get();
 
@@ -147,7 +147,7 @@ export class OutlookService {
         const message = {
             subject: subject,
             body: {
-                contentType: 'Text',
+                contentType: 'HTML',
                 content: body
             },
             from: {

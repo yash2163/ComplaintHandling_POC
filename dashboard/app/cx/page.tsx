@@ -40,6 +40,16 @@ export default async function CXTeamPage() {
     return (
         <div className="min-h-screen bg-gray-100 p-8">
             <div className="max-w-7xl mx-auto">
+                {/* Navigation Bar */}
+                <div className="mb-4">
+                    <Link href="/" className="inline-flex items-center text-indigo-600 hover:text-indigo-800 font-medium">
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                        Back to Home
+                    </Link>
+                </div>
+
                 <h1 className="text-3xl font-bold text-gray-800 mb-6">CX Team - All Complaints</h1>
 
                 <div className="bg-white rounded-lg shadow overflow-hidden">

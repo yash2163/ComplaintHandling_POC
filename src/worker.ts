@@ -79,7 +79,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                             authorType: AuthorType.CX,
                             messageType: MessageType.EMAIL,
                             content: {
-                                body: msg.bodyPreview || '',
+                                body: msg.body?.content || msg.bodyPreview || '',
                                 from: msg.from?.emailAddress?.address || 'unknown',
                                 receivedAt: msg.receivedDateTime
                             }
@@ -170,11 +170,11 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 }
             });
 
-            // Create Draft for Base Ops with structured text grid
+            // Create Draft for Base Ops with HTML table grid
             try {
                 const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
 
-                const gridText = agent.formatGridAsStructuredText(completeGrid);
+                const gridHtml = agent.formatGridAsHtmlTable(completeGrid);
 
                 const htmlBody = `
                     <h3>✈️ Action Required: Flight Complaint Investigation</h3>
@@ -186,18 +186,17 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
 
                     <hr style="border: 1px dashed #ccc; margin: 20px 0;">
                     
-                    <h3 style="color: #d9534f;">📋 Investigation Grid</h3>
-                    <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;">${gridText}</pre>
+                    ${gridHtml}
                     
                     <hr style="border: 1px dashed #ccc; margin: 20px 0;">
                     
                     <h3 style="color: #d9534f;">👇 ACTION REQUIRED 👇</h3>
-                    <p><strong>Please update the grid above by adding:</strong></p>
+                    <p><strong>Please fill in the RESOLUTION section of the grid table above:</strong></p>
                     <ul>
                         <li><strong>Action Taken:</strong> What action did the crew take?</li>
                         <li><strong>Outcome:</strong> What was the final result/compensation?</li>
                     </ul>
-                    <p>Reply to this email with the <strong>complete updated grid</strong> (copy the grid, fill in the details, and send it back).</p>
+                    <p><strong>Reply to this email</strong> with the updated grid. The hidden text version will be parsed automatically.</p>
                 `;
 
                 await outlook.createDraft(
@@ -268,7 +267,9 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
 }
 
 async function processResolutions(outlook: OutlookService, agent: AgentService, targetEmail: string, folderId: string) {
+    console.log(`[DEBUG] pollResolutions: ${folderId}`);
     const messages = await outlook.getEmailsFromFolder(targetEmail, folderId, 10);
+    console.log(`[DEBUG] pollResolutions: Found ${messages.length} messages`);
 
     for (const msg of messages) {
         // Extract Case ID from subject
@@ -299,8 +300,8 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
         // Get full email body
         const emailBody = (msg.body as any)?.content || msg.bodyPreview || '';
 
-        // Parse grid from Base Ops email
-        const parsedGrid = agent.parseGridFromEmail(emailBody);
+        // Parse grid from Base Ops email (Regex OR LLM)
+        const parsedGrid = await agent.parseResolutionFromEmail(emailBody);
 
         if (!parsedGrid || !parsedGrid.action_taken || !parsedGrid.outcome) {
             console.warn(`Failed to parse grid or missing action_taken/outcome for ${complaintId}`);
@@ -320,6 +321,8 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
         // Get original complaint for context
         const originalMsg = complaint.conversation.find(c => c.messageType === MessageType.EMAIL);
         const originalBody = (originalMsg?.content as any)?.body || '';
+
+        console.log(`[DEBUG] Agent 2 Context - Subject: ${complaint.subject}, Body Length: ${originalBody.length}, Preview: ${originalBody.substring(0, 100)}`);
 
         // Agent 2: Enhance grid with evaluation
         const enhancement = await agent.enhanceGridWithResolution(
@@ -369,7 +372,7 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
         if (enhancement.draft_response) {
             const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
 
-            const finalGridText = agent.formatGridAsStructuredText(finalGrid);
+            const finalGridHtml = agent.formatGridAsHtmlTable(finalGrid);
 
             const htmlBody = `
                 <p>Dear Customer,</p>
@@ -377,8 +380,7 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
                 
                 <hr style="border: 1px dashed #ccc; margin: 20px 0;">
                 
-                <h3>📋 Resolution Grid</h3>
-                <pre style="background-color: #f0f7ff; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;">${finalGridText}</pre>
+                ${finalGridHtml}
                 
                 <hr style="border: 1px dashed #ccc; margin: 20px 0;">
 

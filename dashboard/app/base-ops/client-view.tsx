@@ -37,10 +37,8 @@ export default function ClientView({ complaints: initialComplaints, station, sel
     const selected = complaints.find(c => c.id === selectedId);
 
     return (
-        <div className="min-h-screen bg-gray-100 p-8">
+        <div className="flex-1 p-8">
             <div className="max-w-7xl mx-auto">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6">Base Ops Dashboard</h1>
-
                 <div className="grid grid-cols-3 gap-6">
                     {/* Complaint List */}
                     <div className="col-span-1 bg-white rounded-lg shadow p-4 max-h-screen overflow-y-auto">
@@ -103,9 +101,16 @@ export default function ClientView({ complaints: initialComplaints, station, sel
                                                 <p className="text-xs text-gray-500 mb-1">
                                                     {msg.authorType} • {new Date(msg.createdAt).toLocaleString()}
                                                 </p>
-                                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                                                    {msg.messageType === 'EMAIL' ? (msg.content as any).body : 'Grid/Draft'}
-                                                </p>
+                                                <div className="text-sm text-gray-700">
+                                                    {msg.messageType === 'EMAIL' ? (
+                                                        <div
+                                                            className="prose prose-sm max-w-none"
+                                                            dangerouslySetInnerHTML={{ __html: (msg.content as any).body }}
+                                                        />
+                                                    ) : (
+                                                        'Grid/Draft'
+                                                    )}
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
