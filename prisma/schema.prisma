@@ -28,6 +28,7 @@ model Passenger {
   seatNumber   String
   source       String
   destination  String
+  flightDate   DateTime @default(now())
 }
 
 model ConversationMessage {
@@ -73,4 +74,27 @@ enum ResolutionStatus {
   PENDING
   RESOLVED
   FLAGGED
+}
+
+model FlightWeather {
+  id                 String   @id @default(uuid())
+  flightNumber       String
+  date               DateTime // Date of the flight
+  originStation      String   // e.g., "DEL"
+  destinationStation String   // e.g., "BOM"
+
+  // METAR Data (Structured)
+  metarRaw    String
+  wind        String?
+  visibility  String?
+  weather     String? // e.g., "HZ (Haze)"
+  clouds      String?
+  temperature String?
+
+  impact String? // e.g., "Minor delays possible due to reduced visibility"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([flightNumber, date, originStation]) // Ensure unique weather record per flight-leg
 }

@@ -1,5 +1,6 @@
 import { OutlookService } from './services/outlook';
 import { AgentService, CompleteInvestigationGrid } from './services/agent';
+import { WeatherService } from './services/weather';
 import prisma from './services/db';
 import { ComplaintStatus, AuthorType, MessageType, ResolutionStatus } from '@prisma/client';
 import dotenv from 'dotenv';
@@ -122,6 +123,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
         const extractedPnr = extraction.grid.pnr;
         let passengerDetails = null;
 
+
         // 2. TOOL CALL (Database Lookup)
         if (extractedPnr) {
             passengerDetails = await prisma.passenger.findUnique({
@@ -131,6 +133,46 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
 
         if (passengerDetails) {
             console.log(`PNR Found: ${extractedPnr}. Populating details for ${passengerDetails.customerName}`);
+
+            // 3. WEATHER CHECK (New Feature)
+            let weatherData = null;
+            let weatherInfo = '-';
+            try {
+                // Use passenger flight date if available (primary source of truth), 
+                // otherwise fallback to grid date or today
+                const flightDate = passengerDetails.flightDate
+                    ? new Date(passengerDetails.flightDate)
+                    : (extraction.grid.date ? new Date(extraction.grid.date) : new Date());
+
+                const weatherService = new WeatherService();
+                weatherData = await weatherService.getWeatherForFlight(
+                    passengerDetails.flightNumber,
+                    flightDate,
+                    passengerDetails.source
+                );
+
+                if (weatherData) {
+                    console.log(`Weather Data Found: ${weatherData.weather} (Vis: ${weatherData.visibility})`);
+                    weatherInfo = `${weatherData.weather || ''} ${weatherData.visibility ? `(Vis: ${weatherData.visibility})` : ''}`.trim();
+                }
+            } catch (wErr) {
+                console.error('Weather check failed:', wErr);
+            }
+
+            // 4. AUTO-RESOLVE CHECK (AI)
+            let autoResolve = { shouldResolve: false, reason: '', draft: '' };
+            if (weatherData && (extraction.grid.issue_type === 'Delay' || extraction.grid.issue_type === 'Turbulence')) {
+                console.log('Checking for Auto-Resolution...');
+                autoResolve = await agent.shouldAutoResolve(
+                    {
+                        subject: complaint.subject,
+                        body: emailContent.body,
+                        issue_type: extraction.grid.issue_type
+                    },
+                    weatherData
+                );
+                console.log(`Auto-Resolve Decision: ${autoResolve.shouldResolve} (${autoResolve.reason})`);
+            }
 
             // Create complete grid
             const completeGrid: CompleteInvestigationGrid = {
@@ -142,20 +184,27 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 destination: passengerDetails.destination,
                 complaint: extraction.grid.complaint || null,
                 issue_type: extraction.grid.issue_type || null,
-                weather_condition: extraction.grid.weather_condition || null,
+                weather_condition: weatherInfo !== '-' ? weatherInfo : (extraction.grid.weather_condition || '-'),
                 date: extraction.grid.date || null,
-                action_taken: null,
-                outcome: null,
-                agent_summary: null,
-                confidence_score: null,
-                agent_reasoning: null
+                // If auto-resolved, fill resolution fields immediately
+                action_taken: autoResolve.shouldResolve ? `Auto-Resolved: Weather Condition Verified (${weatherInfo})` : null,
+                outcome: autoResolve.shouldResolve ? `Customer notified of Force Majeure. ${autoResolve.reason}` : null,
+                agent_summary: autoResolve.shouldResolve ? `AI Agent verified adverse weather (${weatherInfo}) as the sole cause of delay.` : null,
+                confidence_score: autoResolve.shouldResolve ? 100 : null,
+                agent_reasoning: autoResolve.shouldResolve ? autoResolve.reason : null
             };
 
-            // Save grid to DB and update status
+            // Save grid to DB
+            // If Auto-Resolved, mark as RESOLVED immediately
+            // Else, mark as WAITING_OPS
+            const finalStatus = autoResolve.shouldResolve ? ComplaintStatus.RESOLVED : ComplaintStatus.WAITING_OPS;
+            const resolutionStatus = autoResolve.shouldResolve ? ResolutionStatus.RESOLVED : ResolutionStatus.PENDING;
+
             await prisma.complaint.update({
                 where: { id: complaint.id },
                 data: {
-                    status: ComplaintStatus.WAITING_OPS,
+                    status: finalStatus,
+                    resolutionStatus: resolutionStatus,
                     investigationGrid: completeGrid as any
                 }
             });
@@ -170,43 +219,75 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 }
             });
 
-            // Create Draft for Base Ops with HTML table grid
-            try {
-                const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+            if (autoResolve.shouldResolve) {
+                // SKIP Base Ops. Send final email to CX (Draft) directly.
+                try {
+                    const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+                    const finalGridHtml = agent.formatGridAsHtmlTable(completeGrid);
 
-                const gridHtml = agent.formatGridAsHtmlTable(completeGrid);
+                    const htmlBody = `
+                        <p>Dear Customer,</p>
+                        <p>We have completed the investigation regarding your complaint: <strong>${complaint.subject}</strong>.</p>
+                        
+                        <hr style="border: 1px dashed #ccc; margin: 20px 0;">
+                        ${finalGridHtml}
+                        <hr style="border: 1px dashed #ccc; margin: 20px 0;">
 
-                const htmlBody = `
-                    <h3>✈️ Action Required: Flight Complaint Investigation</h3>
-                    <p><strong>Complaint ID:</strong> ${complaint.id}</p>
-                    <p><strong>Status:</strong> WAITING_OPS</p>
-                    
-                    <h4>Original Complaint</h4>
-                    <p style="background-color: #f9f9f9; padding: 10px; border-left: 4px solid #0052cc;">${completeGrid.complaint}</p>
+                        <p>${autoResolve.draft}</p>
 
-                    <hr style="border: 1px dashed #ccc; margin: 20px 0;">
-                    
-                    ${gridHtml}
-                    
-                    <hr style="border: 1px dashed #ccc; margin: 20px 0;">
-                    
-                    <h3 style="color: #d9534f;">👇 ACTION REQUIRED 👇</h3>
-                    <p><strong>Please fill in the RESOLUTION section of the grid table above:</strong></p>
-                    <ul>
-                        <li><strong>Action Taken:</strong> What action did the crew take?</li>
-                        <li><strong>Outcome:</strong> What was the final result/compensation?</li>
-                    </ul>
-                    <p><strong>Reply to this email</strong> with the updated grid. The hidden text version will be parsed automatically.</p>
-                `;
+                        <p>Sincerely,<br/>
+                        <strong>Indigo Customer Relations</strong><br/>
+                        <span style="font-size: 10px; color: #888;">Ref: ${complaint.id} | Auto-Resolved</span></p>
+                    `;
 
-                await outlook.createDraft(
-                    draftTargetEmail,
-                    `[ACTION REQUIRED] Investigation Request: ${complaint.subject} - PNR: ${extractedPnr} [Case: ${complaint.id}]`,
-                    htmlBody
-                );
-                console.log(`Base Ops draft created for ${complaint.id}`);
-            } catch (draftError) {
-                console.error('Failed to create Base Ops draft:', draftError);
+                    await outlook.createDraft(
+                        draftTargetEmail,
+                        `[RESPONSE] Resolution for your complaint - ${complaint.subject} (PNR: ${extractedPnr})`,
+                        htmlBody
+                    );
+                    console.log(`Auto-Resolution: Draft response created for CX.`);
+                } catch (draftError) {
+                    console.error('Failed to create Auto-Resolve draft:', draftError);
+                }
+
+            } else {
+                // STANDARD FLOW: Create Draft for Base Ops
+                try {
+                    const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
+                    const gridHtml = agent.formatGridAsHtmlTable(completeGrid);
+
+                    const htmlBody = `
+                        <h3>✈️ Action Required: Flight Complaint Investigation</h3>
+                        <p><strong>Complaint ID:</strong> ${complaint.id}</p>
+                        <p><strong>Status:</strong> WAITING_OPS</p>
+                        
+                        <h4>Original Complaint</h4>
+                        <p style="background-color: #f9f9f9; padding: 10px; border-left: 4px solid #0052cc;">${completeGrid.complaint}</p>
+
+                        <hr style="border: 1px dashed #ccc; margin: 20px 0;">
+                        
+                        ${gridHtml}
+                        
+                        <hr style="border: 1px dashed #ccc; margin: 20px 0;">
+                        
+                        <h3 style="color: #d9534f;">👇 ACTION REQUIRED 👇</h3>
+                        <p><strong>Please fill in the RESOLUTION section of the grid table above:</strong></p>
+                        <ul>
+                            <li><strong>Action Taken:</strong> What action did the crew take?</li>
+                            <li><strong>Outcome:</strong> What was the final result/compensation?</li>
+                        </ul>
+                        <p><strong>Reply to this email</strong> with the updated grid. The hidden text version will be parsed automatically.</p>
+                    `;
+
+                    await outlook.createDraft(
+                        draftTargetEmail,
+                        `[ACTION REQUIRED] Investigation Request: ${complaint.subject} - PNR: ${extractedPnr} [Case: ${complaint.id}]`,
+                        htmlBody
+                    );
+                    console.log(`Base Ops draft created for ${complaint.id}`);
+                } catch (draftError) {
+                    console.error('Failed to create Base Ops draft:', draftError);
+                }
             }
 
         } else {

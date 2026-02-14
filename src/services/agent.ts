@@ -244,6 +244,55 @@ ${grid.outcome ? `Outcome: ${grid.outcome}` : ''}
   }
 
   /**
+   * Determine if the complaint should be auto-resolved due to verified adverse weather.
+   * AI Logic: Checks if weather is the SOLE cause of the delay/issue.
+   */
+  public async shouldAutoResolve(complaint: { subject: string, body: string, issue_type: string }, weather: any): Promise<{ shouldResolve: boolean, reason: string, draft: string }> {
+    const prompt = `
+      You are a senior airline operations manager with strict instructions on force majeure.
+      Your goal is to decide if a passenger complaint about a Flight Delay/Turbulence can be auto-resolved based on verified METAR weather data.
+
+      COMPLAINT:
+      Subject: ${complaint.subject}
+      Body: ${complaint.body}
+      Category: ${complaint.issue_type}
+
+      VERIFIED WEATHER DATA (METAR):
+      Raw: ${weather.metarRaw}
+      Conditions: ${weather.weather || 'None'}
+      Visibility: ${weather.visibility || 'N/A'}
+      Wind: ${weather.wind || 'N/A'}
+      
+      RULES:
+      1. IF complainant explicitly blames "staff", "crew", "rude", "technical", "maintenance" -> DO NOT AUTO RESOLVE (FALSE).
+      2. IF complaint is purely about the delay/weather/turbulence AND weather confirms it -> AUTO RESOLVE (TRUE).
+      3. IF weather is good/clear -> DO NOT AUTO RESOLVE (FALSE).
+
+      OUTPUT SCHEMA (JSON):
+      {
+        "shouldResolve": boolean,
+        "reason": "Internal reasoning (e.g. 'Weather confirms Haze, passenger only complained about delay')",
+        "draft_response": "Polite email draft to customer apologizing for the weather-related delay (only if TRUE)"
+      }
+    `;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      const text = result.response.text();
+      const jsonStr = text.replace(/```json/g, '').replace(/```/g, '');
+      const decision = JSON.parse(jsonStr);
+      return {
+        shouldResolve: decision.shouldResolve,
+        reason: decision.reason,
+        draft: decision.draft_response
+      };
+    } catch (error) {
+      console.error('Auto-resolve decision failed:', error);
+      return { shouldResolve: false, reason: 'AI Error', draft: '' };
+    }
+  }
+
+  /**
    * Agent 1: Extract initial investigation grid from customer email
    */
   public async extractInvestigationGrid(email: { body: string, subject: string, receivedAt: Date }): Promise<{ grid: Partial<CompleteInvestigationGrid>, confidence: any }> {

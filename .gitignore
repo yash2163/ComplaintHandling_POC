@@ -52,6 +52,7 @@ docker-compose.override.yml
 *.swp
 *.swo
 
+
 # Misc
 Project Plan..docx
 tmp/
@@ -60,3 +61,13 @@ tmp/
 creds.json
 credentials.json
 key-*.json
+
+# User Scratchpads
+Next step.txt
+*.resolved
+
+# Local Test Scripts
+src/scripts/dump_data.ts
+src/scripts/inject_*.ts
+src/scripts/test_weather_autoresolve.ts
+src/scripts/update_passenger_dates.ts
