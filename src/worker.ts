@@ -9,6 +9,15 @@ dotenv.config();
 
 const POLL_INTERVAL_MS = 60000; // 60s
 
+const CX_EMAIL = 'CXINDIGO@minfytech.com';
+const CR_EMAIL = 'CRINDIGO@minfytech.com'; // Default / Fallback
+
+const BASE_OPS_EMAILS: { [key: string]: string } = {
+    'DEL': 'BASEOPSDELHI@minfytech.com',
+    'BOM': 'BASEOPSMUMBAI@minfytech.com',
+    // Add default or fallbacks if necessary
+};
+
 async function runWorker() {
     console.log('Worker started...');
     const outlook = new OutlookService();
@@ -243,7 +252,8 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                     await outlook.createDraft(
                         draftTargetEmail,
                         `[RESPONSE] Resolution for your complaint - ${complaint.subject} (PNR: ${extractedPnr})`,
-                        htmlBody
+                        htmlBody,
+                        CX_EMAIL // Send to CX Team for review
                     );
                     console.log(`Auto-Resolution: Draft response created for CX.`);
                 } catch (draftError) {
@@ -255,6 +265,12 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 try {
                     const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
                     const gridHtml = agent.formatGridAsHtmlTable(completeGrid);
+
+                    // Determine Target Base Ops Email
+                    const sourceAirport = passengerDetails.source; // e.g., "DEL", "BOM"
+                    const baseOpsEmail = BASE_OPS_EMAILS[sourceAirport] || CR_EMAIL;
+
+                    console.log(`Routing to Base Ops: ${baseOpsEmail} (Source: ${sourceAirport})`);
 
                     const htmlBody = `
                         <h3>✈️ Action Required: Flight Complaint Investigation</h3>
@@ -282,9 +298,10 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                     await outlook.createDraft(
                         draftTargetEmail,
                         `[ACTION REQUIRED] Investigation Request: ${complaint.subject} - PNR: ${extractedPnr} [Case: ${complaint.id}]`,
-                        htmlBody
+                        htmlBody,
+                        baseOpsEmail // Send to Specific Base Ops
                     );
-                    console.log(`Base Ops draft created for ${complaint.id}`);
+                    console.log(`Base Ops draft created for ${complaint.id} -> ${baseOpsEmail}`);
                 } catch (draftError) {
                     console.error('Failed to create Base Ops draft:', draftError);
                 }
@@ -337,7 +354,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                     draftTargetEmail,
                     `Action Required: Missing Flight Details for Case ${complaint.id}`,
                     customerDraftBody,
-                    customerEmail
+                    customerEmail // Send to Customer directly (or drafted for them)
                 );
                 console.log(`Draft created for CUSTOMER (${customerEmail}) requesting PNR.`);
             } catch (draftError) {
@@ -475,7 +492,8 @@ async function processResolutions(outlook: OutlookService, agent: AgentService, 
             await outlook.createDraft(
                 draftTargetEmail,
                 `[RESPONSE] Resolution for your complaint - ${complaint.subject} (PNR: ${finalGrid.pnr || 'N/A'})`,
-                htmlBody
+                htmlBody,
+                CX_EMAIL // Send to CX Team
             );
             console.log(`Draft response created for CX (Score: ${finalGrid.confidence_score} - ${scoreColor}).`);
         }
