@@ -1,0 +1,8 @@
+functions-framework==3.*
+google-cloud-firestore==2.*
+google-cloud-pubsub==2.*
+azure-identity==1.*
+requests==2.*
+python-dotenv==1.*
+openai==1.*
+google-generativeai==0.*

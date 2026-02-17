@@ -4,3 +4,4 @@ yashrajput@yashs-MacBook-Air-2 dashboard % npm run dev
 when database issue comes use: npx prisma migrate deploy
 
 
+trigger for outlook poler: gcloud scheduler jobs create http outlook-poller-job --schedule="*/5 * * * *" --uri="https://outlook-poller-33pbux2oca-uc.a.run.app" --http-method=GET --oidc-service-account-email="464101399941-compute@developer.gserviceaccount.com" --location=us-central1
