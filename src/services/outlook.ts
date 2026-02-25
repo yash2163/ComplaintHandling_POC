@@ -1,7 +1,7 @@
 import { Client } from '@microsoft/microsoft-graph-client';
 import { ClientSecretCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import 'isomorphic-fetch';
 
 dotenv.config();

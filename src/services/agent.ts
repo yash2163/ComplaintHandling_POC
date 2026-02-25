@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { NormalizedEmail, InvestigationGrid } from '../types/domain';
 
 dotenv.config();

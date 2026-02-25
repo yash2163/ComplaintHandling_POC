@@ -1,9 +1,10 @@
 import { OutlookService } from './services/outlook';
 import { AgentService, CompleteInvestigationGrid } from './services/agent';
+import { RAGAgent } from './agent_api/llm_rag';
 import { WeatherService } from './services/weather';
 import prisma from './services/db';
 import { ComplaintStatus, AuthorType, MessageType, ResolutionStatus } from '@prisma/client';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ async function runWorker() {
     console.log('Worker started...');
     const outlook = new OutlookService();
     const agent = new AgentService();
+    const ragAgent = new RAGAgent();
 
     // Ensure Auth
     await outlook.authenticate();
@@ -46,7 +48,7 @@ async function runWorker() {
     while (true) {
         try {
             console.log('Polling cycle start...');
-            await processComplaints(outlook, agent, targetEmail, complaintsFolderId);
+            await processComplaints(outlook, agent, ragAgent, targetEmail, complaintsFolderId);
             await processResolutions(outlook, agent, targetEmail, resolutionsFolderId);
         } catch (error) {
             console.error('Error in poll cycle:', error);
@@ -57,7 +59,7 @@ async function runWorker() {
     }
 }
 
-async function processComplaints(outlook: OutlookService, agent: AgentService, targetEmail: string, folderId: string) {
+async function processComplaints(outlook: OutlookService, agent: AgentService, ragAgent: RAGAgent, targetEmail: string, folderId: string) {
     // 1. INGESTION from "Complaints" Folder
     const messages = await outlook.getEmailsFromFolder(targetEmail, folderId, 10);
 
@@ -168,20 +170,33 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 console.error('Weather check failed:', wErr);
             }
 
-            // 4. AUTO-RESOLVE CHECK (AI)
-            let autoResolve = { shouldResolve: false, reason: '', draft: '' };
-            if (weatherData && (extraction.grid.issue_type === 'Delay' || extraction.grid.issue_type === 'Turbulence')) {
-                console.log('Checking for Auto-Resolution...');
-                autoResolve = await agent.shouldAutoResolve(
-                    {
-                        subject: complaint.subject,
-                        body: emailContent.body,
-                        issue_type: extraction.grid.issue_type
-                    },
-                    weatherData
+            // 4. AUTO-RESOLVE CHECK (AI) via RAG Agent
+            console.log('Checking for Auto-Resolution using RAG Agent...');
+
+            let ragResult;
+            try {
+                ragResult = await ragAgent.processComplaintRAG(
+                    extraction.grid.complaint || emailContent.body,
+                    passengerDetails
                 );
-                console.log(`Auto-Resolve Decision: ${autoResolve.shouldResolve} (${autoResolve.reason})`);
+            } catch (err) {
+                console.error("RAG Agent failed:", err);
+                ragResult = {
+                    category: 'Unknown',
+                    suggested_action: 'None',
+                    suggested_outcome: 'Pending Manual Review',
+                    draft_response: '',
+                    is_auto_resolve_eligible: false,
+                    reasoning: 'AI Error fallback'
+                };
             }
+
+            console.log(`RAG Decision: Eligible=${ragResult.is_auto_resolve_eligible}, Action=${ragResult.suggested_action} (${ragResult.reasoning})`);
+            console.log(`\n=== Retrieved Context from Vector DB ===\n${ragResult.retrieved_context}\n========================================\n`);
+
+            // Use the extracted category from RAG to update issue type if missing or general
+            const finalIssueType = (extraction.grid.issue_type === 'Other' || !extraction.grid.issue_type)
+                ? ragResult.category : extraction.grid.issue_type;
 
             // Create complete grid
             const completeGrid: CompleteInvestigationGrid = {
@@ -192,22 +207,23 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 source: passengerDetails.source,
                 destination: passengerDetails.destination,
                 complaint: extraction.grid.complaint || null,
-                issue_type: extraction.grid.issue_type || null,
+                issue_type: finalIssueType,
                 weather_condition: weatherInfo !== '-' ? weatherInfo : (extraction.grid.weather_condition || '-'),
                 date: extraction.grid.date || null,
-                // If auto-resolved, fill resolution fields immediately
-                action_taken: autoResolve.shouldResolve ? `Auto-Resolved: Weather Condition Verified (${weatherInfo})` : null,
-                outcome: autoResolve.shouldResolve ? `Customer notified of Force Majeure. ${autoResolve.reason}` : null,
-                agent_summary: autoResolve.shouldResolve ? `AI Agent verified adverse weather (${weatherInfo}) as the sole cause of delay.` : null,
-                confidence_score: autoResolve.shouldResolve ? 100 : null,
-                agent_reasoning: autoResolve.shouldResolve ? autoResolve.reason : null
+
+                // If auto-resolved, fill resolution fields immediately based on RAG output
+                action_taken: ragResult.is_auto_resolve_eligible ? `Auto-Resolved via RAG: ${ragResult.suggested_action}` : null,
+                outcome: ragResult.is_auto_resolve_eligible ? ragResult.suggested_outcome : null,
+                agent_summary: ragResult.is_auto_resolve_eligible ? `AI Agent verified against Master Table limits. Reasoning: ${ragResult.reasoning}` : null,
+                confidence_score: ragResult.is_auto_resolve_eligible ? 95 : null, // High confidence if structurally eligible
+                agent_reasoning: ragResult.is_auto_resolve_eligible ? ragResult.reasoning : null
             };
 
             // Save grid to DB
             // If Auto-Resolved, mark as RESOLVED immediately
             // Else, mark as WAITING_OPS
-            const finalStatus = autoResolve.shouldResolve ? ComplaintStatus.RESOLVED : ComplaintStatus.WAITING_OPS;
-            const resolutionStatus = autoResolve.shouldResolve ? ResolutionStatus.RESOLVED : ResolutionStatus.PENDING;
+            const finalStatus = ragResult.is_auto_resolve_eligible ? ComplaintStatus.RESOLVED : ComplaintStatus.WAITING_OPS;
+            const resolutionStatus = ragResult.is_auto_resolve_eligible ? ResolutionStatus.RESOLVED : ResolutionStatus.PENDING;
 
             await prisma.complaint.update({
                 where: { id: complaint.id },
@@ -228,7 +244,7 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                 }
             });
 
-            if (autoResolve.shouldResolve) {
+            if (ragResult.is_auto_resolve_eligible) {
                 // SKIP Base Ops. Send final email to CX (Draft) directly.
                 try {
                     const draftTargetEmail = process.env.TARGET_MAILBOX_EMAIL!;
@@ -242,11 +258,11 @@ async function processComplaints(outlook: OutlookService, agent: AgentService, t
                         ${finalGridHtml}
                         <hr style="border: 1px dashed #ccc; margin: 20px 0;">
 
-                        <p>${autoResolve.draft}</p>
+                        <p>${ragResult.draft_response}</p>
 
                         <p>Sincerely,<br/>
                         <strong>Indigo Customer Relations</strong><br/>
-                        <span style="font-size: 10px; color: #888;">Ref: ${complaint.id} | Auto-Resolved</span></p>
+                        <span style="font-size: 10px; color: #888;">Ref: ${complaint.id} | Auto-Resolved by RAG Policy Agent</span></p>
                     `;
 
                     await outlook.createDraft(

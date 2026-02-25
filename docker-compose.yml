@@ -16,6 +16,14 @@ services:
       timeout: 5s
       retries: 5
 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: indigo_chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/chroma:/chroma/chroma
+
   worker:
     build: 
       context: .
