@@ -1,3 +1,8 @@
+/**
+ * PURPOSE: Automatically drafts and sends a mock customer complaint email directly into the 'Complaints' Outlook folder via Microsoft Graph.
+ * USAGE: npx ts-node src/scripts/simulate_ingestion.ts
+ * WHEN TO USE: Run this to instantly test the Outlook Polling Worker without having to log into an email client yourself to draft a message.
+ */
 import { OutlookService } from '../services/outlook';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -15,20 +20,22 @@ async function simulateIngestion() {
 
     console.log(`Injecting test complaint into folder: ${complaintsFolderId}`);
 
-    const subject = "Urgent: Missing Baggage on Flight 6E-555";
+    // ==========================================
+    // EDIT THESE VARIABLES TO TEST A NEW COMPLAINT
+    // ==========================================
+    const subject = "Urgent: Diverted Flight Chaos";
     const body = `
     Hi Indigo Team,
     
-    I am writing to report my missing baggage. 
-    Flight: 6E-555
-    Date: 2026-03-03
-    Origin: BOM
+    My flight was diverted to another city last night due to bad weather. 
+    We were left sitting at the airport for 12 hours without any hotel accommodation offered.
     
-    My bag did not arrive on the belt. Please assist immediately.
+    This is unacceptable. I demand compensation for my hotel and meals.
     
     Regards,
     Test Passenger
     `;
+    // ==========================================
 
     await outlook.createMessageInFolder(targetEmail, complaintsFolderId, subject, body);
     console.log("Comlaint injected successfully!");

@@ -1,3 +1,11 @@
+/**
+ * PURPOSE: Manages the local SQLite RAG databases (Resolutions DB and Limits) and seeds the ChromaDB Vector Store.
+ * USAGE: 
+ *   - npx ts-node src/scripts/db_manager.ts init (Creates tables)
+ *   - npx ts-node src/scripts/db_manager.ts seed (Fills with mock data for RAG POC + Seeds Vectors)
+ *   - npx ts-node src/scripts/db_manager.ts view resolutions (Views the stored mock DB data)
+ * WHEN TO USE: Use this to inspect your RAG rules, reset data, or check why a complaint was resolved a certain way.
+ */
 import { initializeDatabases, getResolutionsDb, getMasterDb } from '../agent_api/database';
 import { VectorStore } from '../agent_api/vector_store';
 

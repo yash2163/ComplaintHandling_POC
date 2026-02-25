@@ -1,3 +1,8 @@
+/**
+ * PURPOSE: Tests the Azure/Microsoft Graph API connection to ensure the Outlook Service can authenticate and read folders.
+ * USAGE: npm run validate-connectivity
+ * WHEN TO USE: Run this if the worker fails to start or complains about Outlook/Azure credentials.
+ */
 import { OutlookService } from '../services/outlook';
 import dotenv from 'dotenv';
 

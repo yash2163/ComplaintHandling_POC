@@ -1,3 +1,8 @@
+/**
+ * PURPOSE: Clears all complaint and passenger data from the primary PostgreSQL database.
+ * USAGE: npx ts-node src/scripts/clear_database.ts
+ * WHEN TO USE: Run this when you want a fresh start and want to delete all processed emails, pending complaints, or cached Outlook IDs.
+ */
 import prisma from '../services/db';
 import dotenv from 'dotenv';
 dotenv.config();
